@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ==========================================
-echo  CrossBible  Windows Build (PyInstaller)
+echo  CrossBible  Windows Launcher (no build)
 echo ==========================================
 echo.
 
@@ -27,34 +27,25 @@ if not exist .venv (
         pause
         exit /b 1
     )
+
+    echo [2/3] Installing dependencies (first run only)...
+    call .venv\Scripts\activate.bat
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] pip install failed
+        pause
+        exit /b 1
+    )
+) else (
+    call .venv\Scripts\activate.bat
 )
 
-echo [2/3] Installing dependencies...
-call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip
-python -m pip install pyinstaller -r requirements.txt
-if errorlevel 1 (
-    echo [ERROR] pip install failed
-    pause
-    exit /b 1
-)
-
-echo [3/3] Running PyInstaller...
-pyinstaller --clean --noconfirm ^
-    --windowed ^
-    --name CrossBible ^
-    --collect-submodules PyQt6 ^
-    main.py
-if errorlevel 1 (
-    echo [ERROR] PyInstaller build failed
-    pause
-    exit /b 1
-)
-
+echo [3/3] Launching CrossBible...
 echo.
-echo ==========================================
-echo  Build complete!
-echo  Output: dist\CrossBible\CrossBible.exe
-echo ==========================================
-echo.
-pause
+python main.py
+if errorlevel 1 (
+    echo.
+    echo [ERROR] CrossBible exited with an error.
+    pause
+)
