@@ -21,19 +21,21 @@
 
 ## 설치 · 실행
 
-Python 3.10+ 필요.
+### Windows — Releases에서 받기 (가장 쉬움)
 
-### Windows (가장 쉬움)
+[Releases 페이지](https://github.com/yeonju7kim/CrossBible/releases)에서 최신 zip을 다운로드합니다.
 
-PyInstaller 없이 그냥 더블클릭으로 실행:
+1. 최신 `CrossBible_v*.zip` 다운로드 → 압축 해제
+2. `build_windows.bat` 실행 (Python 필요 — 없으면 [Microsoft Store에서 설치](https://apps.microsoft.com/detail/9PNRBTZXMB4Z))
+3. 빌드가 끝나면 `CrossBible\dist\CrossBible\CrossBible.exe` 더블클릭
 
-```
-run_windows.bat
-```
+### Windows — 소스에서 직접 실행 (빌드 없이)
 
-처음 한 번만 venv를 만들고 `requirements.txt`를 설치한 뒤 바로 실행됩니다. 단일 exe로 배포하고 싶으면 `build_windows.bat`.
+이 저장소를 clone 또는 zip으로 받은 뒤 `run_windows.bat` 더블클릭. 처음 한 번만 venv를 만들고 `requirements.txt`를 설치한 다음 바로 실행됩니다.
 
 ### 일반 (macOS · Linux · 직접 venv)
+
+Python 3.10+ 필요.
 
 ```bash
 python -m venv .venv
