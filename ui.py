@@ -103,6 +103,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.search": "검색…",
         "search.title": "본문 검색 (캐시 안)",
         "search.placeholder": "키워드 (한/영, 부분 일치)",
+        "search.intro": "이미 다운로드한 본문에서만 검색됩니다. 도구 → 성경 다운로드… 에서 미리 받아두세요.",
         "search.go": "검색",
         "search.translations_label": "번역본",
         "search.col_ref": "참조",
@@ -212,6 +213,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.search": "Search…",
         "search.title": "Search Bible text (cached)",
         "search.placeholder": "Keyword (Korean or English, substring)",
+        "search.intro": "Only verses you've already downloaded are searched. Use Tools → Download Bible first.",
         "search.go": "Search",
         "search.translations_label": "Translations",
         "search.col_ref": "Reference",
@@ -647,6 +649,12 @@ class SearchDialog(QDialog):
         v = QVBoxLayout(self)
         v.setContentsMargins(12, 12, 12, 12)
         v.setSpacing(8)
+
+        # 안내 — 캐시된 본문만 검색됨을 항상 표시
+        intro = QLabel(tr("search.intro"))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#888;")
+        v.addWidget(intro)
 
         # 입력 행
         input_row = QHBoxLayout()
