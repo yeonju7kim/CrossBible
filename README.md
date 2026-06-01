@@ -12,6 +12,16 @@
 
 ![Screenshot — no panel](assets/CrossBible_Screenshot_nopanel.png)
 
+기타 다이얼로그:
+
+<table>
+<tr>
+<td align="center"><b>본문 검색 (Ctrl+F)</b><br/><img src="assets/CrossBible_Screenshot_search.png" width="380"/></td>
+<td align="center"><b>성경 다운로드</b><br/><img src="assets/CrossBible_Screenshot_download.png" width="320"/></td>
+<td align="center"><b>영어사전 (한↔영)</b><br/><img src="assets/CrossBible_Screenshot_translator.png" width="320"/></td>
+</tr>
+</table>
+
 ## 기능
 
 - **4개 번역 동시 표시**: 개역개정 · 현대인의 성경 · NIV · ESV (체크박스로 켜고 끄기)
