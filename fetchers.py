@@ -138,18 +138,17 @@ class BibleGatewayFetcher:
             for tag in container.select(sel):
                 tag.decompose()
 
+        # 클래스 한 줄에 (chap, verse) 쌍이 1개 이상 들어 있다 (e.g. "Gen-1-6-Gen-1-7"
+        # 처럼 묶음 절). 모두 추출해서 같은 본문 텍스트를 해당 절들에 부여.
         verses: dict[int, str] = {}
         for span in container.select("span.text"):
-            classes = span.get("class", [])
-            verse_num = None
-            for c in classes:
-                m = re.match(r"^[\w]+-(\d+)-(\d+)$", c)
-                if m and int(m.group(1)) == ref.chapter:
-                    verse_num = int(m.group(2))
-                    break
-            if verse_num is None:
-                continue
-            if not (ref.verse_start <= verse_num <= ref.verse_end):
+            class_str = " ".join(span.get("class", []))
+            matched = set()
+            for chap_s, verse_s in re.findall(r"[A-Za-z]\w*-(\d+)-(\d+)", class_str):
+                if int(chap_s) == ref.chapter:
+                    matched.add(int(verse_s))
+            matched = {n for n in matched if ref.verse_start <= n <= ref.verse_end}
+            if not matched:
                 continue
             for sup in span.select("sup.versenum"):
                 sup.decompose()
@@ -157,7 +156,8 @@ class BibleGatewayFetcher:
             text = re.sub(r"\s+", " ", text).strip()
             if not text:
                 continue
-            verses[verse_num] = (verses.get(verse_num, "") + " " + text).strip()
+            for n in matched:
+                verses[n] = (verses.get(n, "") + " " + text).strip()
 
         missing = [n for n in ref.verse_numbers() if n not in verses]
         if missing:
