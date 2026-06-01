@@ -4,10 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
     QColor,
+    QDesktopServices,
     QIcon,
     QKeySequence,
     QPalette,
@@ -95,6 +97,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "테마",
         "menu.language": "언어",
         "menu.download_all": "전체 다운로드…",
+        "menu.cache_info": "캐시 정보…",
+        "cache.title": "캐시 정보",
+        "cache.intro": (
+            "캐시 파일에는 다음이 저장됩니다:\n"
+            "  • 성경 구절 (조회한 절 + 전체 다운로드한 본문)\n"
+            "  • 이미 본 절의 원어 (BibleHub Interlinear)\n"
+            "  • 이미 본 절의 주석 (BibleHub Commentary)\n"
+            "  • 절별 메모\n\n"
+            "원어와 주석은 한 번이라도 본 절만 캐시됩니다."
+        ),
+        "cache.path_label": "위치",
+        "cache.size_label": "파일 크기",
+        "cache.contents_label": "현재 저장된 항목",
+        "cache.verses_line": "본문: {summary} (총 {total}절)",
+        "cache.verses_none": "본문: 없음",
+        "cache.interlinear_line": "원어: {n}개 절",
+        "cache.commentary_line": "주석: {n}개 절",
+        "cache.notes_line": "메모: {n}개",
+        "cache.open_folder": "폴더 열기",
+        "cache.close": "닫기",
         "menu.dictionary": "영어사전…",
         "dictionary.title": "영어사전 (한↔영)",
         "dictionary.prompt": "단어 또는 짧은 구절을 입력하세요. 한글이면 영어로, 영어면 한글로 번역됩니다.",
@@ -162,6 +184,26 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "Theme",
         "menu.language": "Language",
         "menu.download_all": "Download all chapters…",
+        "menu.cache_info": "Cache info…",
+        "cache.title": "Cache info",
+        "cache.intro": (
+            "The cache file stores:\n"
+            "  • Bible verses (verses you looked up + any whole-book download)\n"
+            "  • Interlinear data for verses you've already viewed (BibleHub)\n"
+            "  • Commentary for verses you've already viewed (BibleHub)\n"
+            "  • Per-verse notes\n\n"
+            "Interlinear and commentary are cached only for verses you have viewed."
+        ),
+        "cache.path_label": "Location",
+        "cache.size_label": "File size",
+        "cache.contents_label": "Currently stored",
+        "cache.verses_line": "Verses: {summary} (total {total})",
+        "cache.verses_none": "Verses: none",
+        "cache.interlinear_line": "Interlinear: {n} verses",
+        "cache.commentary_line": "Commentary: {n} verses",
+        "cache.notes_line": "Notes: {n}",
+        "cache.open_folder": "Open folder",
+        "cache.close": "Close",
         "menu.dictionary": "Dictionary…",
         "dictionary.title": "Dictionary (Korean ↔ English)",
         "dictionary.prompt": "Type a word or short phrase. Korean is translated to English and vice versa.",
@@ -745,6 +787,11 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(dict_action)
         self._dict_dialog: DictionaryDialog | None = None
 
+        tools_menu.addSeparator()
+        cache_action = QAction(tr("menu.cache_info"), self)
+        cache_action.triggered.connect(self._on_open_cache_info)
+        tools_menu.addAction(cache_action)
+
     def _on_theme_chosen(self, theme: str):
         self.settings.setValue("theme", theme)
         app = QApplication.instance()
@@ -1015,6 +1062,47 @@ class MainWindow(QMainWindow):
             code for code in CrossBibleFetcher.TRANSLATIONS
             if self.translation_checks[code].isChecked()
         ]
+
+    # ---- 캐시 정보 ----
+
+    def _on_open_cache_info(self):
+        stats = self.storage.stats()
+        path = stats["path"]
+        size_mb = stats["size_bytes"] / (1024 * 1024)
+
+        verses_map = stats["verses_by_translation"]
+        if verses_map:
+            summary = ", ".join(
+                f"{CrossBibleFetcher.TRANSLATION_LABELS.get(code, code)} {n:,}"
+                for code, n in sorted(verses_map.items())
+            )
+            verses_line = tr("cache.verses_line", summary=summary, total=f"{sum(verses_map.values()):,}")
+        else:
+            verses_line = tr("cache.verses_none")
+
+        body = (
+            tr("cache.intro")
+            + "\n\n"
+            + tr("cache.path_label") + ": " + path + "\n"
+            + tr("cache.size_label") + f": {size_mb:.2f} MB\n\n"
+            + tr("cache.contents_label") + ":\n"
+            + "  • " + verses_line + "\n"
+            + "  • " + tr("cache.interlinear_line", n=f"{stats['interlinear']:,}") + "\n"
+            + "  • " + tr("cache.commentary_line", n=f"{stats['commentary']:,}") + "\n"
+            + "  • " + tr("cache.notes_line", n=f"{stats['notes']:,}")
+        )
+
+        mbox = QMessageBox(self)
+        mbox.setIcon(QMessageBox.Icon.Information)
+        mbox.setWindowTitle(tr("cache.title"))
+        mbox.setText(body)
+        open_btn = mbox.addButton(tr("cache.open_folder"), QMessageBox.ButtonRole.ActionRole)
+        mbox.addButton(tr("cache.close"), QMessageBox.ButtonRole.RejectRole)
+        mbox.exec()
+
+        if mbox.clickedButton() is open_btn:
+            folder = Path(path).parent
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
     # ---- 사전 ----
 

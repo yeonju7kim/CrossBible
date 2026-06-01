@@ -49,6 +49,7 @@ class Storage:
     """
 
     def __init__(self, path: Path):
+        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self._lock = threading.Lock()
@@ -86,6 +87,32 @@ class Storage:
                 (translation, book_en, chapter),
             )
             return cur.fetchone() is not None
+
+    def stats(self) -> dict:
+        """캐시 통계 — 다이얼로그에서 보여줄 용도."""
+        with self._lock:
+            verses_by_t = dict(self.conn.execute(
+                "SELECT translation, COUNT(*) FROM verses GROUP BY translation"
+            ).fetchall())
+            interlinear = self.conn.execute(
+                "SELECT COUNT(*) FROM verse_blob WHERE kind='interlinear'"
+            ).fetchone()[0]
+            commentary = self.conn.execute(
+                "SELECT COUNT(*) FROM verse_blob WHERE kind='commentary'"
+            ).fetchone()[0]
+            notes = self.conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+        try:
+            size_bytes = self.path.stat().st_size
+        except OSError:
+            size_bytes = 0
+        return {
+            "verses_by_translation": verses_by_t,
+            "interlinear": int(interlinear),
+            "commentary": int(commentary),
+            "notes": int(notes),
+            "size_bytes": int(size_bytes),
+            "path": str(self.path),
+        }
 
     # ---- per-verse blob (interlinear / commentary HTML or markdown) ----
 
