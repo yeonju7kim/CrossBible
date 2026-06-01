@@ -122,6 +122,44 @@ class Storage:
             for r in rows
         ]
 
+    def import_from(self, other_path: Path) -> dict:
+        """다른 CrossBible DB 파일에서 verses + verse_blob 만 병합.
+
+        - 메모(notes)는 의도적으로 가져오지 않음 — 사용자 개인 데이터라 합치면 충돌하기 쉬움.
+        - 같은 키(translation/book/chapter/verse 또는 kind/book/chapter/verse)가 있으면 무시(IGNORE).
+        - 반환: 추가된 행 수를 담은 dict.
+        """
+        with self._lock:
+            before_verses = self.conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
+            before_blobs = self.conn.execute("SELECT COUNT(*) FROM verse_blob").fetchone()[0]
+            self.conn.execute("ATTACH DATABASE ? AS ext", (str(other_path),))
+            try:
+                # 다른 DB가 같은 스키마인지 확인
+                rows = self.conn.execute(
+                    "SELECT name FROM ext.sqlite_master WHERE type='table' AND name IN ('verses','verse_blob')"
+                ).fetchall()
+                tables = {r[0] for r in rows}
+                if "verses" not in tables:
+                    raise RuntimeError("다른 DB에 verses 테이블이 없습니다 — CrossBible DB 파일이 아닐 수 있어요.")
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO verses "
+                    "SELECT translation, book_en, chapter, verse, text FROM ext.verses"
+                )
+                if "verse_blob" in tables:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO verse_blob "
+                        "SELECT kind, book_en, chapter, verse, payload FROM ext.verse_blob"
+                    )
+                self.conn.commit()
+            finally:
+                self.conn.execute("DETACH DATABASE ext")
+            after_verses = self.conn.execute("SELECT COUNT(*) FROM verses").fetchone()[0]
+            after_blobs = self.conn.execute("SELECT COUNT(*) FROM verse_blob").fetchone()[0]
+        return {
+            "verses_added": after_verses - before_verses,
+            "blobs_added": after_blobs - before_blobs,
+        }
+
     def stats(self) -> dict:
         """캐시 통계 — 다이얼로그에서 보여줄 용도."""
         with self._lock:

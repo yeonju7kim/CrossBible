@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QCompleter,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -125,6 +126,27 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "about.unknown_version": "(버전 정보 없음)",
         "menu.cache_info": "캐시 정보…",
+        "menu.export_db": "캐시 백업 (.db 내보내기)…",
+        "menu.import_db": "캐시 불러오기 (.db 병합)…",
+        "db.export.title": "캐시 백업 저장 위치",
+        "db.export.filter": "SQLite DB (*.db);;모든 파일 (*)",
+        "db.export.success_title": "백업 완료",
+        "db.export.success_body": "캐시 파일을 다음 위치에 저장했습니다:\n{path}",
+        "db.export.error_title": "백업 실패",
+        "db.export.error_body": "백업 중 오류가 발생했습니다: {message}",
+        "db.import.title": "불러올 캐시 .db 선택",
+        "db.import.filter": "SQLite DB (*.db);;모든 파일 (*)",
+        "db.import.confirm_title": "캐시 병합",
+        "db.import.confirm_body": (
+            "선택한 DB의 본문/원어/주석 캐시를 현재 캐시에 병합합니다.\n"
+            "메모(notes)는 가져오지 않고 본인 PC의 것을 유지합니다.\n"
+            "이미 있는 행은 건너뛰니, 안전하게 합칠 수 있어요.\n\n"
+            "계속할까요?"
+        ),
+        "db.import.success_title": "병합 완료",
+        "db.import.success_body": "본문 {verses}건, 원어/주석 {blobs}건이 새로 추가되었습니다.",
+        "db.import.error_title": "병합 실패",
+        "db.import.error_body": "병합 중 오류가 발생했습니다: {message}",
         "cache.title": "캐시 정보",
         "cache.intro": (
             "캐시 파일에는 다음이 저장됩니다:\n"
@@ -243,6 +265,27 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "about.unknown_version": "(version unknown)",
         "menu.cache_info": "Cache info…",
+        "menu.export_db": "Back up cache (.db export)…",
+        "menu.import_db": "Import cache (.db merge)…",
+        "db.export.title": "Save cache backup as…",
+        "db.export.filter": "SQLite DB (*.db);;All files (*)",
+        "db.export.success_title": "Backup saved",
+        "db.export.success_body": "Cache file saved to:\n{path}",
+        "db.export.error_title": "Backup failed",
+        "db.export.error_body": "Could not save the backup: {message}",
+        "db.import.title": "Select a CrossBible .db to import",
+        "db.import.filter": "SQLite DB (*.db);;All files (*)",
+        "db.import.confirm_title": "Merge cache",
+        "db.import.confirm_body": (
+            "Merges verses / interlinear / commentary from the chosen DB into your current cache.\n"
+            "Notes are intentionally kept from your local DB (not imported).\n"
+            "Existing rows are skipped, so the merge is safe to repeat.\n\n"
+            "Proceed?"
+        ),
+        "db.import.success_title": "Merge complete",
+        "db.import.success_body": "Added {verses} verses and {blobs} interlinear/commentary entries.",
+        "db.import.error_title": "Merge failed",
+        "db.import.error_body": "Could not merge: {message}",
         "cache.title": "Cache info",
         "cache.intro": (
             "The cache file stores:\n"
@@ -1120,6 +1163,14 @@ class MainWindow(QMainWindow):
         cache_action.triggered.connect(self._on_open_cache_info)
         tools_menu.addAction(cache_action)
 
+        export_action = QAction(tr("menu.export_db"), self)
+        export_action.triggered.connect(self._on_export_db)
+        tools_menu.addAction(export_action)
+
+        import_action = QAction(tr("menu.import_db"), self)
+        import_action.triggered.connect(self._on_import_db)
+        tools_menu.addAction(import_action)
+
         help_menu = bar.addMenu(tr("menu.help"))
         feedback_action = QAction(tr("menu.feedback"), self)
         feedback_action.triggered.connect(self._on_open_feedback)
@@ -1469,6 +1520,74 @@ class MainWindow(QMainWindow):
             tr("about.title"),
             tr("about.body", version=version),
         )
+
+    # ---- DB 백업 / 복원 ----
+
+    def _on_export_db(self):
+        import shutil
+        src = Path(self.storage.path)
+        # commit 후 디스크에 반영
+        try:
+            self.storage.conn.commit()
+        except Exception:
+            pass
+        default_name = f"crossbible-cache-{src.stat().st_mtime:.0f}.db"
+        default_dir = str(Path.home() / default_name)
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("db.export.title"),
+            default_dir,
+            tr("db.export.filter"),
+        )
+        if not path_str:
+            return
+        try:
+            shutil.copy2(src, path_str)
+            QMessageBox.information(
+                self,
+                tr("db.export.success_title"),
+                tr("db.export.success_body", path=path_str),
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                tr("db.export.error_title"),
+                tr("db.export.error_body", message=str(e)),
+            )
+
+    def _on_import_db(self):
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("db.import.title"),
+            str(Path.home()),
+            tr("db.import.filter"),
+        )
+        if not path_str:
+            return
+        confirm = QMessageBox.question(
+            self,
+            tr("db.import.confirm_title"),
+            tr("db.import.confirm_body"),
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self.storage.import_from(Path(path_str))
+            QMessageBox.information(
+                self,
+                tr("db.import.success_title"),
+                tr(
+                    "db.import.success_body",
+                    verses=result["verses_added"],
+                    blobs=result["blobs_added"],
+                ),
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                tr("db.import.error_title"),
+                tr("db.import.error_body", message=str(e)),
+            )
 
     # ---- 캐시 정보 ----
 
