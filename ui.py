@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -560,11 +560,23 @@ class MainWindow(QMainWindow):
         )
 
 
+def _resource_path(rel: str) -> Path:
+    """소스 실행과 PyInstaller(_MEIPASS) 빌드 양쪽에서 동작하는 리소스 경로."""
+    import sys
+
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / rel
+
+
 def run():
     import sys
 
     app = QApplication(sys.argv)
     app.setApplicationName("CrossBible")
+
+    icon_path = _resource_path("assets/icon.png")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     base = Path.home() / ".crossbible"
     storage = Storage(base / "data.db")

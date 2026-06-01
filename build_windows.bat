@@ -29,20 +29,30 @@ if not exist .venv (
     )
 )
 
-echo [2/3] Installing dependencies...
+echo [2/4] Installing dependencies...
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-python -m pip install pyinstaller -r requirements.txt
+python -m pip install pyinstaller Pillow -r requirements.txt
 if errorlevel 1 (
     echo [ERROR] pip install failed
     pause
     exit /b 1
 )
 
-echo [3/3] Running PyInstaller...
+echo [3/4] Converting icon.png to icon.ico (for the exe)...
+python -c "from PIL import Image; Image.open('assets/icon.png').save('assets/icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+if errorlevel 1 (
+    echo [ERROR] Icon conversion failed
+    pause
+    exit /b 1
+)
+
+echo [4/4] Running PyInstaller...
 pyinstaller --clean --noconfirm ^
     --windowed ^
     --name CrossBible ^
+    --icon assets/icon.ico ^
+    --add-data "assets/icon.png;assets" ^
     --collect-submodules PyQt6 ^
     main.py
 if errorlevel 1 (

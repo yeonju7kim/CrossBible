@@ -1,12 +1,16 @@
+<p align="center">
+  <img src="assets/icon.png" width="160" alt="CrossBible icon"/>
+</p>
+
 # CrossBible
 
 여러 한국어/영어 번역본을 한 화면에서 같이 읽으면서, 절마다 원어(BibleHub interlinear)·주석·메모까지 한 곳에 모아 보는 개인 성경 학습용 데스크탑 앱.
 
-![Screenshot](CrossBible_Screenshot.png)
+![Screenshot](assets/CrossBible_Screenshot.png)
 
 사이드 패널을 끄면 (F9) 4개 번역본이 윈도우 전체로 확장됩니다:
 
-![Screenshot — no panel](CrossBible_Screenshot_nopanel.png)
+![Screenshot — no panel](assets/CrossBible_Screenshot_nopanel.png)
 
 ## 기능
 
