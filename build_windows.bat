@@ -62,6 +62,7 @@ pyinstaller --clean --noconfirm ^
     --icon "assets\icon.ico" ^
     --add-data "assets\icon.png;assets" ^
     --add-data "assets\icon.ico;assets" ^
+    --add-data "version.txt;." ^
     --collect-submodules PyQt6 ^
     main.py
 if errorlevel 1 (

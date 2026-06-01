@@ -116,6 +116,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.jump_hint": "두 번 클릭하면 그 절로 이동합니다.",
         "menu.help": "도움말",
         "menu.feedback": "건의사항 · 이슈 보내기…",
+        "menu.about": "버전 정보…",
+        "about.title": "CrossBible 정보",
+        "about.body": (
+            "CrossBible {version}\n\n"
+            "여러 한국어/영어 번역본을 한 화면에 보여주는 개인 성경 학습용 데스크탑 앱.\n\n"
+            "https://github.com/yeonju7kim/CrossBible"
+        ),
+        "about.unknown_version": "(버전 정보 없음)",
         "menu.cache_info": "캐시 정보…",
         "cache.title": "캐시 정보",
         "cache.intro": (
@@ -226,6 +234,14 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.jump_hint": "Double-click a row to jump to that verse.",
         "menu.help": "Help",
         "menu.feedback": "Send feedback / open an issue…",
+        "menu.about": "About…",
+        "about.title": "About CrossBible",
+        "about.body": (
+            "CrossBible {version}\n\n"
+            "A personal desktop app that puts multiple Korean / English Bible translations side by side.\n\n"
+            "https://github.com/yeonju7kim/CrossBible"
+        ),
+        "about.unknown_version": "(version unknown)",
         "menu.cache_info": "Cache info…",
         "cache.title": "Cache info",
         "cache.intro": (
@@ -1109,6 +1125,10 @@ class MainWindow(QMainWindow):
         feedback_action.triggered.connect(self._on_open_feedback)
         help_menu.addAction(feedback_action)
 
+        about_action = QAction(tr("menu.about"), self)
+        about_action.triggered.connect(self._on_open_about)
+        help_menu.addAction(about_action)
+
     def _on_theme_chosen(self, theme: str):
         self.settings.setValue("theme", theme)
         self.settings.sync()  # 다음 실행에서 확실히 읽히도록 즉시 디스크에 flush
@@ -1435,6 +1455,20 @@ class MainWindow(QMainWindow):
 
     def _on_open_feedback(self):
         QDesktopServices.openUrl(QUrl("https://github.com/yeonju7kim/CrossBible/issues"))
+
+    def _on_open_about(self):
+        version_path = _resource_path("version.txt")
+        try:
+            version = version_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            version = ""
+        if not version:
+            version = tr("about.unknown_version")
+        QMessageBox.about(
+            self,
+            tr("about.title"),
+            tr("about.body", version=version),
+        )
 
     # ---- 캐시 정보 ----
 
