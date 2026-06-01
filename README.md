@@ -77,6 +77,14 @@ python main.py
 - 한 번에 20절까지 조회 가능. 그 이상은 안내 메시지로 막혀 있어요.
 - 일부 번역(예: KLB 창 1:6-7)은 인접 절을 합본으로 번역합니다. 이 경우 두 절 위치에 같은 본문이 표시됩니다.
 
+## 트러블슈팅
+
+**`CrossBible.exe`를 다시 빌드했는데 아이콘이 이전 그대로 보여요.**
+Windows Explorer/작업표시줄의 아이콘 캐시 때문입니다. `build_windows.bat`은 `ie4uinit.exe -show`로 갱신을 시도하지만, 그래도 안 되면:
+1. `dist\CrossBible` 폴더를 다른 위치로 옮겼다가 다시 가져오기
+2. 로그오프 후 다시 로그인 (또는 재부팅)
+3. `%LOCALAPPDATA%\IconCache.db` 삭제 후 explorer 재시작
+
 ## 파일
 
 ```

@@ -40,19 +40,28 @@ if errorlevel 1 (
 )
 
 echo [3/4] Converting icon.png to icon.ico (for the exe)...
-python -c "from PIL import Image; Image.open('assets/icon.png').save('assets/icon.ico', sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])"
+if exist assets\icon.ico del /f /q assets\icon.ico
+python -c "from PIL import Image; img = Image.open('assets/icon.png').convert('RGBA'); img.save('assets/icon.ico', format='ICO', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
 if errorlevel 1 (
     echo [ERROR] Icon conversion failed
     pause
     exit /b 1
 )
+if not exist assets\icon.ico (
+    echo [ERROR] assets\icon.ico was not produced
+    pause
+    exit /b 1
+)
 
-echo [4/4] Running PyInstaller...
+echo [4/4] Running PyInstaller (clean build)...
+if exist dist\CrossBible rmdir /s /q dist\CrossBible
+if exist build\CrossBible rmdir /s /q build\CrossBible
 pyinstaller --clean --noconfirm ^
     --windowed ^
     --name CrossBible ^
-    --icon assets/icon.ico ^
-    --add-data "assets/icon.png;assets" ^
+    --icon "assets\icon.ico" ^
+    --add-data "assets\icon.png;assets" ^
+    --add-data "assets\icon.ico;assets" ^
     --collect-submodules PyQt6 ^
     main.py
 if errorlevel 1 (
@@ -61,10 +70,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Windows Explorer/taskbar caches exe icons aggressively; nudge the shell
+REM so the new icon shows up without a reboot.
+ie4uinit.exe -show >nul 2>&1
+
 echo.
 echo ==========================================
 echo  Build complete!
 echo  Output: dist\CrossBible\CrossBible.exe
+echo.
+echo  If the .exe icon still looks like the old one in Explorer,
+echo  it's the Windows icon cache. Try one of:
+echo    - move the dist\CrossBible folder somewhere else, then back
+echo    - log off and back in
+echo    - delete %%LOCALAPPDATA%%\IconCache.db and restart Explorer
 echo ==========================================
 echo.
 pause
