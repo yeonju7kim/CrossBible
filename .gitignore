@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# SQLite cache (contains copyrighted Bible verse text — never commit)
+*.db
+
+# User notes / runtime data (lives in ~/.crossbible by default; just in case)
+.crossbible/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
