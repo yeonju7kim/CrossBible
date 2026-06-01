@@ -8,6 +8,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCompleter,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -331,7 +332,16 @@ class MainWindow(QMainWindow):
         row.addWidget(QLabel("책"))
         self.book_box = QComboBox()
         self.book_box.addItems(book_names_ko())
-        self.book_box.currentIndexChanged.connect(self._on_book_changed)
+        # 검색 가능한 콤보: "고" → 고린도전서/고린도후서/골로새서 처럼 시작 매칭으로 필터.
+        self.book_box.setEditable(True)
+        self.book_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        completer = self.book_box.completer()
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        # activated: 키보드/마우스로 항목을 명시적으로 선택한 순간만 발화.
+        # currentIndexChanged 는 편집 중에도 발화되어 chap_box 초기화를 자꾸 트리거함.
+        self.book_box.activated.connect(self._on_book_changed)
         row.addWidget(self.book_box, 1)
 
         row.addWidget(QLabel("장"))
