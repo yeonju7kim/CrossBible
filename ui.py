@@ -1596,12 +1596,24 @@ class MainWindow(QMainWindow):
                 tr("download.canceled_title"),
                 tr("download.canceled_body", done=done, total=total),
             )
-        else:
-            QMessageBox.information(
-                self,
-                tr("download.done_title"),
-                tr("download.done_body", done=done, total=total, failures=len(failures)),
-            )
+            return
+
+        mbox = QMessageBox(self)
+        mbox.setIcon(QMessageBox.Icon.Information)
+        mbox.setWindowTitle(tr("download.done_title"))
+        mbox.setText(tr("download.done_body", done=done, total=total, failures=len(failures)))
+
+        if failures:
+            from bible_books import BOOKS
+            en_to_ko = {en: ko for en, ko, _, _, _ in BOOKS}
+            lines = []
+            for translation, book_en, chapter, msg in failures:
+                label = CrossBibleFetcher.TRANSLATION_LABELS.get(translation, translation)
+                ko = en_to_ko.get(book_en, book_en)
+                lines.append(f"[{label}] {ko} {chapter}장 — {msg}")
+            mbox.setDetailedText("\n".join(lines))
+
+        mbox.exec()
 
 
 def _resource_path(rel: str) -> Path:
