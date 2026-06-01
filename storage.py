@@ -88,6 +88,40 @@ class Storage:
             )
             return cur.fetchone() is not None
 
+    def search(
+        self,
+        query: str,
+        translations: list[str] | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        """캐시된 본문에서 키워드(부분일치, 대소문자 무시) 검색."""
+        q = query.strip()
+        if not q:
+            return []
+        params: list = ["%" + q + "%"]
+        sql = (
+            "SELECT translation, book_en, chapter, verse, text "
+            "FROM verses WHERE text LIKE ? COLLATE NOCASE"
+        )
+        if translations:
+            placeholders = ",".join("?" for _ in translations)
+            sql += f" AND translation IN ({placeholders})"
+            params.extend(translations)
+        sql += " ORDER BY book_en, chapter, verse, translation LIMIT ?"
+        params.append(int(limit))
+        with self._lock:
+            rows = self.conn.execute(sql, params).fetchall()
+        return [
+            {
+                "translation": r[0],
+                "book_en": r[1],
+                "chapter": int(r[2]),
+                "verse": int(r[3]),
+                "text": r[4],
+            }
+            for r in rows
+        ]
+
     def stats(self) -> dict:
         """캐시 통계 — 다이얼로그에서 보여줄 용도."""
         with self._lock:

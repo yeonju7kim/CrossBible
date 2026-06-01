@@ -100,6 +100,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "테마",
         "menu.language": "언어",
         "menu.download_all": "전체 다운로드…",
+        "menu.search": "검색…",
+        "search.title": "본문 검색 (캐시 안)",
+        "search.placeholder": "키워드 (한/영, 부분 일치)",
+        "search.go": "검색",
+        "search.translations_label": "번역본",
+        "search.col_ref": "참조",
+        "search.col_translation": "번역",
+        "search.col_preview": "미리보기",
+        "search.results_count": "{n}건",
+        "search.no_results": "결과 없음",
+        "search.too_many": "{n}건 (처음 {limit}건만 표시)",
+        "search.empty_cache": "캐시가 비어 있습니다. 도구 → 성경 다운로드… 로 본문을 먼저 받으세요.",
+        "search.jump_hint": "두 번 클릭하면 그 절로 이동합니다.",
         "menu.help": "도움말",
         "menu.feedback": "건의사항 · 이슈 보내기…",
         "menu.cache_info": "캐시 정보…",
@@ -196,6 +209,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "Theme",
         "menu.language": "Language",
         "menu.download_all": "Download all chapters…",
+        "menu.search": "Search…",
+        "search.title": "Search Bible text (cached)",
+        "search.placeholder": "Keyword (Korean or English, substring)",
+        "search.go": "Search",
+        "search.translations_label": "Translations",
+        "search.col_ref": "Reference",
+        "search.col_translation": "Translation",
+        "search.col_preview": "Preview",
+        "search.results_count": "{n} result(s)",
+        "search.no_results": "No results",
+        "search.too_many": "{n} matches (showing first {limit})",
+        "search.empty_cache": "Cache is empty. Run Tools → Download Bible first.",
+        "search.jump_hint": "Double-click a row to jump to that verse.",
         "menu.help": "Help",
         "menu.feedback": "Send feedback / open an issue…",
         "menu.cache_info": "Cache info…",
@@ -605,6 +631,137 @@ class DownloadSelectionDialog(QDialog):
         ]
 
 
+class SearchDialog(QDialog):
+    """캐시된 본문에서 키워드 검색. 결과 더블클릭 시 메인 윈도우에서 그 절을 lookup."""
+
+    SEARCH_LIMIT = 500
+
+    verse_selected = pyqtSignal(str, int, int)  # book_en, chapter, verse
+
+    def __init__(self, storage: Storage, default_translations: list[str], parent=None):
+        super().__init__(parent)
+        self.storage = storage
+        self.setWindowTitle(tr("search.title"))
+        self.resize(720, 520)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+
+        # 입력 행
+        input_row = QHBoxLayout()
+        self.input_edit = QLineEdit()
+        self.input_edit.setPlaceholderText(tr("search.placeholder"))
+        self.input_edit.returnPressed.connect(self._do_search)
+        self.go_btn = QPushButton(tr("search.go"))
+        self.go_btn.clicked.connect(self._do_search)
+        input_row.addWidget(self.input_edit, 1)
+        input_row.addWidget(self.go_btn)
+        v.addLayout(input_row)
+
+        # 번역본 체크박스
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel(tr("search.translations_label") + ":"))
+        self.trans_checks: dict[str, QCheckBox] = {}
+        for code in CrossBibleFetcher.TRANSLATIONS:
+            cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
+            cb.setChecked(code in default_translations)
+            self.trans_checks[code] = cb
+            filter_row.addWidget(cb)
+        filter_row.addStretch(1)
+        v.addLayout(filter_row)
+
+        # 결과 테이블
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([
+            tr("search.col_ref"),
+            tr("search.col_translation"),
+            tr("search.col_preview"),
+        ])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(self._on_row_activated)
+        v.addWidget(self.table, 1)
+
+        self.status = QLabel(tr("search.jump_hint"))
+        self.status.setStyleSheet("color:#888;")
+        v.addWidget(self.status)
+
+        self.input_edit.setFocus()
+
+    def _selected_translations(self) -> list[str]:
+        return [c for c, cb in self.trans_checks.items() if cb.isChecked()]
+
+    def _do_search(self):
+        query = self.input_edit.text().strip()
+        translations = self._selected_translations()
+        if not query or not translations:
+            self.table.setRowCount(0)
+            return
+
+        rows = self.storage.search(query, translations=translations, limit=self.SEARCH_LIMIT)
+        # 캐시 자체가 비어있는지 확인
+        if not rows:
+            stats = self.storage.stats()
+            if not stats["verses_by_translation"]:
+                self.status.setText(tr("search.empty_cache"))
+            else:
+                self.status.setText(tr("search.no_results"))
+            self.table.setRowCount(0)
+            return
+
+        # 같은 절이 여러 번역에 다 있으면 모두 표시 (사용자가 비교 가능)
+        from bible_books import BOOKS
+        en_to_ko = {en: ko for en, ko, _, _, _ in BOOKS}
+
+        self.table.setRowCount(len(rows))
+        for i, r in enumerate(rows):
+            ref_str = f"{en_to_ko.get(r['book_en'], r['book_en'])} {r['chapter']}:{r['verse']}"
+            preview = self._snippet(r["text"], query)
+            ref_item = QTableWidgetItem(ref_str)
+            ref_item.setData(Qt.ItemDataRole.UserRole, (r["book_en"], r["chapter"], r["verse"]))
+            self.table.setItem(i, 0, ref_item)
+            self.table.setItem(i, 1, QTableWidgetItem(
+                CrossBibleFetcher.TRANSLATION_LABELS.get(r["translation"], r["translation"])
+            ))
+            self.table.setItem(i, 2, QTableWidgetItem(preview))
+        self.table.resizeColumnToContents(0)
+        self.table.resizeColumnToContents(1)
+
+        if len(rows) >= self.SEARCH_LIMIT:
+            self.status.setText(tr("search.too_many", n=len(rows), limit=self.SEARCH_LIMIT))
+        else:
+            self.status.setText(tr("search.results_count", n=len(rows)))
+
+    @staticmethod
+    def _snippet(text: str, needle: str, radius: int = 30) -> str:
+        idx = text.lower().find(needle.lower())
+        if idx < 0:
+            return text[:80] + ("…" if len(text) > 80 else "")
+        start = max(0, idx - radius)
+        end = min(len(text), idx + len(needle) + radius)
+        out = text[start:end]
+        if start > 0:
+            out = "…" + out
+        if end < len(text):
+            out = out + "…"
+        return out
+
+    def _on_row_activated(self, index):
+        row = index.row()
+        item = self.table.item(row, 0)
+        if item is None:
+            return
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        book_en, chapter, verse = data
+        self.verse_selected.emit(book_en, int(chapter), int(verse))
+
+
 class FetchWorker(QObject):
     verses_ready = pyqtSignal(str, list)
     interlinear_ready = pyqtSignal(int, list)
@@ -922,6 +1079,12 @@ class MainWindow(QMainWindow):
         dl_action = QAction(tr("menu.download_all"), self)
         dl_action.triggered.connect(self._on_download_all)
         tools_menu.addAction(dl_action)
+
+        search_action = QAction(tr("menu.search"), self)
+        search_action.setShortcut(QKeySequence("Ctrl+F"))
+        search_action.triggered.connect(self._on_open_search)
+        tools_menu.addAction(search_action)
+        self._search_dialog: SearchDialog | None = None
 
         dict_action = QAction(tr("menu.dictionary"), self)
         dict_action.triggered.connect(self._on_open_dictionary)
@@ -1305,6 +1468,34 @@ class MainWindow(QMainWindow):
         if mbox.clickedButton() is open_btn:
             folder = Path(path).parent
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+    # ---- 검색 ----
+
+    def _on_open_search(self):
+        if self._search_dialog is None:
+            self._search_dialog = SearchDialog(
+                self.storage,
+                default_translations=self._enabled_translations(),
+                parent=self,
+            )
+            self._search_dialog.verse_selected.connect(self._on_search_jump)
+        self._search_dialog.show()
+        self._search_dialog.raise_()
+        self._search_dialog.activateWindow()
+        self._search_dialog.input_edit.setFocus()
+
+    def _on_search_jump(self, book_en: str, chapter: int, verse: int):
+        # 결과 클릭 → 셀렉터에 값 채우고 즉시 조회
+        from bible_books import BOOKS
+        ko = next((k for en, k, _, _, _ in BOOKS if en == book_en), None)
+        if ko is None:
+            return
+        self.book_box.setCurrentText(ko)
+        self._on_book_changed(self.book_box.currentIndex())
+        self.chap_box.setValue(chapter)
+        self.verse_start.setValue(verse)
+        self.verse_end.setValue(verse)
+        self._on_lookup()
 
     # ---- 사전 ----
 
