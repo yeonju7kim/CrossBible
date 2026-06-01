@@ -527,22 +527,36 @@ class CrossBibleFetcher:
         translations,
         progress_cb=None,
         cancel_cb=None,
+        books=None,
     ):
-        """모든 책의 모든 장을 받아 캐시.
+        """선택한 책들의 모든 장을 받아 캐시.
 
+        translations: 다운로드할 번역 코드 리스트
+        books: 다운로드할 책 영문명 리스트. None 이면 66권 모두.
         progress_cb(done:int, total:int, label:str) — 진행 콜백
         cancel_cb() -> bool — True 반환 시 중단
         반환: (done, total, failures: list[(translation, book_en, chapter, msg)])
         """
         from bible_books import BOOKS
 
-        total = sum(chapters for _, _, _, _, chapters in BOOKS) * len(translations)
+        if books is None:
+            book_set = None
+        else:
+            book_set = set(books)
+
+        selected_books = [
+            (en, ko, chapters)
+            for en, ko, _, _, chapters in BOOKS
+            if book_set is None or en in book_set
+        ]
+
+        total = sum(chapters for _, _, chapters in selected_books) * len(translations)
         done = 0
         failures: list[tuple[str, str, int, str]] = []
 
         for translation in translations:
             label = self.TRANSLATION_LABELS.get(translation, translation)
-            for book_en, book_ko, _, _, max_chap in BOOKS:
+            for book_en, book_ko, max_chap in selected_books:
                 for chap in range(1, max_chap + 1):
                     if cancel_cb and cancel_cb():
                         return done, total, failures

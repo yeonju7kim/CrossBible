@@ -21,11 +21,14 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QCompleter,
     QDialog,
+    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -125,15 +128,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "dictionary.error": "번역 실패: {message}",
         "language.restart_title": "재시작 필요",
         "language.restart_body": "언어를 바꾸려면 앱을 다시 시작하세요.",
-        "download.title": "전체 다운로드",
-        "download.prompt_title": "전체 다운로드",
-        "download.prompt_body": (
-            "현재 체크된 번역본 ({translations}) 의 모든 책·장을 받아 캐시합니다.\n"
-            "총 {total}개 페이지 호출, 약 {minutes}분 소요. 사이 약 0.7초씩 throttle.\n\n"
-            "본문은 사용자 본인 PC의 SQLite 캐시에만 저장됩니다. "
-            "개인 학습/연구 용도로만 사용해 주세요.\n\n"
-            "지금 시작할까요?"
+        "download.title": "성경 다운로드",
+        "download.prompt_title": "다운로드할 항목 선택",
+        "download.intro": (
+            "선택한 번역본과 책의 모든 장을 받아 캐시합니다.\n"
+            "이미 받은 장은 자동으로 건너뜁니다. 도중에 취소해도 그때까지 받은 분은 유지되니, "
+            "다시 열어서 이어받기가 가능합니다."
         ),
+        "download.translations_label": "번역본",
+        "download.books_label": "책 (필요한 것만 체크)",
+        "download.select_all_books": "전체",
+        "download.select_ot": "구약",
+        "download.select_nt": "신약",
+        "download.clear_books": "모두 해제",
+        "download.summary": "선택: {books_count}권 × 번역 {trans_count}개 = {total}회 호출 / 약 {minutes}분",
+        "download.start": "시작",
+        "download.no_selection": "번역본과 책을 하나 이상 선택해주세요.",
         "download.preparing": "준비 중…",
         "download.cancel": "취소",
         "download.canceled_title": "취소됨",
@@ -212,15 +222,21 @@ STRINGS: dict[str, dict[str, str]] = {
         "dictionary.error": "Translation failed: {message}",
         "language.restart_title": "Restart required",
         "language.restart_body": "Restart the app to apply the language change.",
-        "download.title": "Download all",
-        "download.prompt_title": "Download all chapters",
-        "download.prompt_body": (
-            "This will cache every book/chapter of the currently enabled translations ({translations}).\n"
-            "Total: {total} page requests, ~{minutes} minutes (throttled ~0.7s each).\n\n"
-            "Text is stored only in your local SQLite cache. "
-            "For personal study/research use.\n\n"
-            "Start now?"
+        "download.title": "Download Bible",
+        "download.prompt_title": "Choose what to download",
+        "download.intro": (
+            "Cache every chapter of the selected translations × books.\n"
+            "Already-cached chapters are skipped, so canceling and reopening this dialog resumes where you left off."
         ),
+        "download.translations_label": "Translations",
+        "download.books_label": "Books (check the ones you want)",
+        "download.select_all_books": "All",
+        "download.select_ot": "OT",
+        "download.select_nt": "NT",
+        "download.clear_books": "Clear",
+        "download.summary": "Selected: {books_count} books × {trans_count} translations = {total} requests / ~{minutes} min",
+        "download.start": "Start",
+        "download.no_selection": "Select at least one translation and one book.",
         "download.preparing": "Preparing…",
         "download.cancel": "Cancel",
         "download.canceled_title": "Canceled",
@@ -339,10 +355,11 @@ class DownloadWorker(QObject):
     progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(int, int, list)
 
-    def __init__(self, fetcher: CrossBibleFetcher, translations: list[str]):
+    def __init__(self, fetcher: CrossBibleFetcher, translations: list[str], books: list[str] | None):
         super().__init__()
         self.fetcher = fetcher
         self.translations = translations
+        self.books = books
         self._cancel = False
 
     def cancel(self):
@@ -353,6 +370,7 @@ class DownloadWorker(QObject):
             self.translations,
             progress_cb=lambda d, t, label: self.progress.emit(d, t, label),
             cancel_cb=lambda: self._cancel,
+            books=self.books,
         )
         self.finished.emit(done, total, failures)
 
@@ -462,6 +480,125 @@ class DictionaryDialog(QDialog):
         self._worker = None
         self._thread = None
         self.search_btn.setEnabled(True)
+
+
+class DownloadSelectionDialog(QDialog):
+    """다운로드할 번역본 + 책을 고르는 다이얼로그."""
+
+    def __init__(self, default_translations: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("download.prompt_title"))
+        self.resize(520, 640)
+
+        from bible_books import BOOKS
+
+        v = QVBoxLayout(self)
+        v.setSpacing(8)
+
+        intro = QLabel(tr("download.intro"))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#888;")
+        v.addWidget(intro)
+
+        # 번역본 체크박스
+        v.addWidget(_section_label(tr("download.translations_label"), level=2))
+        trans_row = QHBoxLayout()
+        self.trans_checks: dict[str, QCheckBox] = {}
+        for code in CrossBibleFetcher.TRANSLATIONS:
+            cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
+            cb.setChecked(code in default_translations)
+            cb.toggled.connect(self._refresh_summary)
+            self.trans_checks[code] = cb
+            trans_row.addWidget(cb)
+        trans_row.addStretch(1)
+        v.addLayout(trans_row)
+
+        # 책 빠른 선택 버튼
+        v.addWidget(_section_label(tr("download.books_label"), level=2))
+        quick_row = QHBoxLayout()
+        btn_all = QPushButton(tr("download.select_all_books"))
+        btn_ot = QPushButton(tr("download.select_ot"))
+        btn_nt = QPushButton(tr("download.select_nt"))
+        btn_clear = QPushButton(tr("download.clear_books"))
+        for b in (btn_all, btn_ot, btn_nt, btn_clear):
+            quick_row.addWidget(b)
+        quick_row.addStretch(1)
+        v.addLayout(quick_row)
+
+        # 66권 체크 가능 리스트
+        self.book_list = QListWidget()
+        self._items: list[QListWidgetItem] = []
+        for en, ko, _, _, chapters in BOOKS:
+            item = QListWidgetItem(f"{ko}  ({chapters}장)")
+            item.setData(Qt.ItemDataRole.UserRole, en)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            self.book_list.addItem(item)
+            self._items.append(item)
+        self.book_list.itemChanged.connect(lambda _it: self._refresh_summary())
+        v.addWidget(self.book_list, 1)
+
+        # 빠른 선택 핸들러
+        def set_all(state: Qt.CheckState):
+            for it in self._items:
+                it.setCheckState(state)
+        def set_range(start: int, end: int):
+            for i, it in enumerate(self._items):
+                it.setCheckState(
+                    Qt.CheckState.Checked if start <= i < end else Qt.CheckState.Unchecked
+                )
+        btn_all.clicked.connect(lambda: set_all(Qt.CheckState.Checked))
+        btn_clear.clicked.connect(lambda: set_all(Qt.CheckState.Unchecked))
+        btn_ot.clicked.connect(lambda: set_range(0, 39))   # 창세기~말라기
+        btn_nt.clicked.connect(lambda: set_range(39, 66))  # 마태복음~요한계시록
+
+        self.summary_label = QLabel("")
+        self.summary_label.setWordWrap(True)
+        self.summary_label.setStyleSheet("color:#666; padding-top:6px;")
+        v.addWidget(self.summary_label)
+
+        # OK / 취소
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("download.start"))
+        btn_box.accepted.connect(self.accept)
+        btn_box.rejected.connect(self.reject)
+        v.addWidget(btn_box)
+
+        self._refresh_summary()
+
+    def _refresh_summary(self):
+        from bible_books import BOOKS
+
+        translations = self.selected_translations()
+        chosen_books = set(self.selected_books())
+        trans_count = len(translations)
+        books_count = len(chosen_books)
+        chapters_sum = sum(
+            chapters for en, _, _, _, chapters in BOOKS if en in chosen_books
+        )
+        total = chapters_sum * trans_count
+        minutes = max(1, round(total * 0.7 / 60))
+        self.summary_label.setText(
+            tr(
+                "download.summary",
+                books_count=books_count,
+                trans_count=trans_count,
+                total=total,
+                minutes=minutes,
+            )
+        )
+
+    def selected_translations(self) -> list[str]:
+        return [code for code, cb in self.trans_checks.items() if cb.isChecked()]
+
+    def selected_books(self) -> list[str]:
+        return [
+            it.data(Qt.ItemDataRole.UserRole)
+            for it in self._items
+            if it.checkState() == Qt.CheckState.Checked
+        ]
 
 
 class FetchWorker(QObject):
@@ -1124,28 +1261,25 @@ class MainWindow(QMainWindow):
             )
             return
 
+        dialog = DownloadSelectionDialog(
+            default_translations=self._enabled_translations(), parent=self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        translations = dialog.selected_translations()
+        books = dialog.selected_books()
+        if not translations or not books:
+            QMessageBox.information(
+                self, tr("download.title"), tr("download.no_selection")
+            )
+            return
+
         from bible_books import BOOKS
 
-        translations = self._enabled_translations()
-        if not translations:
-            return
-        per_translation_pages = sum(chapters for _, _, _, _, chapters in BOOKS)
-        total = per_translation_pages * len(translations)
-        minutes = max(1, round(total * 0.7 / 60))
-        label_list = ", ".join(CrossBibleFetcher.TRANSLATION_LABELS[t] for t in translations)
-
-        confirm = QMessageBox.question(
-            self,
-            tr("download.prompt_title"),
-            tr(
-                "download.prompt_body",
-                translations=label_list,
-                total=total,
-                minutes=minutes,
-            ),
+        chapters_sum = sum(
+            chapters for en, _, _, _, chapters in BOOKS if en in set(books)
         )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
+        total = chapters_sum * len(translations)
 
         self._dl_dialog = QProgressDialog(
             tr("download.preparing"), tr("download.cancel"), 0, total, self
@@ -1157,7 +1291,7 @@ class MainWindow(QMainWindow):
         self._dl_dialog.setValue(0)
 
         self._dl_thread = QThread(self)
-        self._dl_worker = DownloadWorker(self.fetcher, translations)
+        self._dl_worker = DownloadWorker(self.fetcher, translations, books)
         self._dl_worker.moveToThread(self._dl_thread)
         self._dl_thread.started.connect(self._dl_worker.run)
 
