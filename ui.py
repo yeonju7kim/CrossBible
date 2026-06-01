@@ -1,13 +1,14 @@
-"""PyQt6 메인 윈도우."""
+"""PyQt6 메인 윈도우 — wide layout, 세로 스택, 양쪽 패널 스크롤."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QAction, QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -16,10 +17,10 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QStatusBar,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextBrowser,
@@ -27,7 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from bible_books import BOOKS, book_chapters, book_names_ko, lookup_by_ko
+from bible_books import book_names_ko, lookup_by_ko
 from fetchers import CrossBibleFetcher
 from reference import Reference
 from storage import Storage
@@ -36,8 +37,6 @@ from storage import Storage
 # ---------- 백그라운드 작업 ----------
 
 class FetchWorker(QObject):
-    """단일 절(또는 절 범위)의 모든 데이터를 백그라운드에서 가져온다."""
-
     verses_ready = pyqtSignal(str, list)            # translation, [(n, text)]
     interlinear_ready = pyqtSignal(int, list)       # verse_num, [{strong,...}]
     commentary_ready = pyqtSignal(int, str)         # verse_num, text
@@ -84,105 +83,82 @@ class FetchWorker(QObject):
 
 # ---------- 보조 위젯 ----------
 
+def _section_label(text: str, *, level: int = 1) -> QLabel:
+    lbl = QLabel(text)
+    f = lbl.font()
+    f.setBold(True)
+    f.setPointSize(f.pointSize() + (2 if level == 1 else 1))
+    lbl.setFont(f)
+    return lbl
+
+
+def _hline() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.HLine)
+    line.setFrameShadow(QFrame.Shadow.Sunken)
+    return line
+
+
 class TranslationPanel(QWidget):
-    """번역본 하나 — 라벨 + 본문."""
+    """번역본 하나 — 라벨 + 본문 (QLabel, 자동 줄바꿈/자동 높이)."""
 
     def __init__(self, translation: str, label: str):
         super().__init__()
         self.translation = translation
 
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 8, 8, 8)
-        v.setSpacing(4)
+        v.setContentsMargins(8, 12, 8, 12)
+        v.setSpacing(6)
 
-        head = QLabel(label)
-        head_font = head.font()
-        head_font.setBold(True)
-        head_font.setPointSize(head_font.pointSize() + 1)
-        head.setFont(head_font)
-        v.addWidget(head)
+        v.addWidget(_section_label(label, level=1))
 
-        self.body = QTextBrowser()
-        self.body.setOpenExternalLinks(True)
+        self.body = QLabel()
+        self.body.setWordWrap(True)
+        self.body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         # 한국어 번역본 글꼴 살짝 키움
-        if translation in ("GAE", "WLB"):
-            body_font = self.body.font()
-            body_font.setPointSize(body_font.pointSize() + 1)
-            self.body.setFont(body_font)
-        v.addWidget(self.body, 1)
+        if translation in ("GAE", "KLB"):
+            f = self.body.font()
+            f.setPointSize(f.pointSize() + 1)
+            self.body.setFont(f)
+        v.addWidget(self.body)
 
     def set_verses(self, verses: list[tuple[int, str]]):
         lines = []
         for n, text in verses:
-            lines.append(f"<p><b>{n}</b>  {text}</p>")
-        self.body.setHtml("".join(lines))
+            lines.append(f"<p style='margin:2px 0'><b>{n}</b>&nbsp;&nbsp;{text}</p>")
+        self.body.setText("".join(lines))
 
     def set_error(self, message: str):
-        self.body.setHtml(
+        self.body.setText(
             f"<p style='color:#a00'>가져오기 실패<br><small>{message}</small></p>"
         )
 
     def set_loading(self):
-        self.body.setHtml("<p style='color:#888'>불러오는 중…</p>")
+        self.body.setText("<p style='color:#888'>불러오는 중…</p>")
 
 
-class VerseTabs(QTabWidget):
-    """절별 원어 / 주석 / 메모 표시. 절 단위로 서브탭."""
+class InterlinearTable(QTableWidget):
+    """모든 행을 표시하는 높이 고정 테이블."""
 
-    def __init__(self, storage: Storage):
-        super().__init__()
-        self.storage = storage
-        self.setDocumentMode(True)
-        # kind별 위젯 보관: {(kind, verse_num): widget}
-        self._widgets: dict[tuple[str, int], QWidget] = {}
-        # 현재 ref
-        self._ref: Reference | None = None
-        # 절 단위 탭 묶음
-        self._verse_widget_tabs: dict[int, QTabWidget] = {}
+    def __init__(self):
+        super().__init__(0, 4)
+        self.setHorizontalHeaderLabels(["Strong", "원어", "음역", "영어"])
+        self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.verticalHeader().setVisible(False)
+        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        # 내부 스크롤 끄기 — 부모 ScrollArea 가 처리
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-    def reset(self, ref: Reference):
-        self.clear()
-        self._widgets.clear()
-        self._verse_widget_tabs.clear()
-        self._ref = ref
-
-        for v in ref.verse_numbers():
-            verse_tab = QTabWidget()
-            verse_tab.setDocumentMode(True)
-
-            interlinear = QTableWidget(0, 4)
-            interlinear.setHorizontalHeaderLabels(["Strong", "원어", "음역", "영어"])
-            interlinear.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            interlinear.verticalHeader().setVisible(False)
-            interlinear.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-            self._widgets[("interlinear", v)] = interlinear
-            verse_tab.addTab(interlinear, "원어 (BibleHub)")
-
-            commentary = QTextBrowser()
-            commentary.setOpenExternalLinks(True)
-            self._widgets[("commentary", v)] = commentary
-            verse_tab.addTab(commentary, "주석")
-
-            note = QPlainTextEdit()
-            note.setPlaceholderText("이 절에 대한 메모를 입력하세요. (자동 저장)")
-            note.setPlainText(self.storage.get_note(ref.book_en, ref.chapter, v))
-            note.textChanged.connect(lambda v=v, note=note: self._save_note(v, note))
-            self._widgets[("note", v)] = note
-            verse_tab.addTab(note, "메모")
-
-            self._verse_widget_tabs[v] = verse_tab
-            self.addTab(verse_tab, f"{ref.chapter}:{v}")
-
-    def _save_note(self, verse: int, widget: QPlainTextEdit):
-        if self._ref is None:
-            return
-        self.storage.put_note(self._ref.book_en, self._ref.chapter, verse, widget.toPlainText())
-
-    def set_interlinear(self, verse: int, words: list[dict[str, str]]):
-        w = self._widgets.get(("interlinear", verse))
-        if not isinstance(w, QTableWidget):
-            return
-        w.setRowCount(len(words))
+    def set_words(self, words: list[dict[str, str]]):
+        self.setRowCount(len(words))
         for row, wd in enumerate(words):
             for col, key in enumerate(("strong", "original", "translit", "english")):
                 item = QTableWidgetItem(wd.get(key, ""))
@@ -190,13 +166,65 @@ class VerseTabs(QTabWidget):
                     f = item.font()
                     f.setPointSize(f.pointSize() + 2)
                     item.setFont(f)
-                w.setItem(row, col, item)
+                self.setItem(row, col, item)
+        self._fit_height()
 
-    def set_commentary(self, verse: int, text: str):
-        w = self._widgets.get(("commentary", verse))
-        if not isinstance(w, QTextBrowser):
-            return
-        # 매우 단순한 markdown→html: ### 헤더와 빈줄 단위 단락만 처리.
+    def set_error(self, message: str):
+        self.setRowCount(1)
+        self.setItem(0, 0, QTableWidgetItem("오류"))
+        self.setItem(0, 1, QTableWidgetItem(message))
+        self._fit_height()
+
+    def _fit_height(self):
+        self.resizeRowsToContents()
+        header = self.horizontalHeader().height()
+        rows = sum(self.rowHeight(r) for r in range(self.rowCount()))
+        self.setFixedHeight(header + rows + 4)
+
+
+class VerseBlock(QWidget):
+    """한 절에 대한 [헤더 · 원어 · 주석 · 메모] 묶음."""
+
+    def __init__(self, ref: Reference, verse: int, storage: Storage):
+        super().__init__()
+        self.ref = ref
+        self.verse = verse
+        self.storage = storage
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(8, 12, 8, 12)
+        v.setSpacing(8)
+
+        v.addWidget(_section_label(f"{ref.book_ko} {ref.chapter}:{verse}", level=1))
+
+        v.addWidget(_section_label("원어 (BibleHub Interlinear)", level=2))
+        self.interlinear = InterlinearTable()
+        v.addWidget(self.interlinear)
+
+        v.addWidget(_section_label("주석 (BibleHub Commentaries)", level=2))
+        self.commentary = QTextBrowser()
+        self.commentary.setOpenExternalLinks(True)
+        self.commentary.setFixedHeight(360)
+        v.addWidget(self.commentary)
+
+        v.addWidget(_section_label("메모", level=2))
+        self.note = QPlainTextEdit()
+        self.note.setPlaceholderText("이 절에 대한 메모를 입력하세요. (자동 저장)")
+        self.note.setFixedHeight(150)
+        self.note.setPlainText(storage.get_note(ref.book_en, ref.chapter, verse))
+        self.note.textChanged.connect(self._save_note)
+        v.addWidget(self.note)
+
+        v.addWidget(_hline())
+
+    def _save_note(self):
+        self.storage.put_note(self.ref.book_en, self.ref.chapter, self.verse,
+                              self.note.toPlainText())
+
+    def set_interlinear(self, words: list[dict[str, str]]):
+        self.interlinear.set_words(words)
+
+    def set_commentary(self, text: str):
         html_parts = []
         for block in text.split("\n\n"):
             block = block.strip()
@@ -207,17 +235,27 @@ class VerseTabs(QTabWidget):
             else:
                 safe = block.replace("<", "&lt;").replace(">", "&gt;")
                 html_parts.append(f"<p>{safe}</p>")
-        w.setHtml("\n".join(html_parts) or "<p style='color:#888'>주석 없음</p>")
+        self.commentary.setHtml("\n".join(html_parts) or "<p style='color:#888'>주석 없음</p>")
 
-    def set_error(self, kind: str, verse: int, message: str):
-        w = self._widgets.get((kind, verse))
-        if isinstance(w, QTextBrowser):
-            w.setHtml(f"<p style='color:#a00'>{kind} 가져오기 실패<br><small>{message}</small></p>")
-        elif isinstance(w, QTableWidget):
-            w.setRowCount(1)
-            w.setColumnCount(1)
-            w.setHorizontalHeaderLabels(["오류"])
-            w.setItem(0, 0, QTableWidgetItem(message))
+    def set_loading(self):
+        self.commentary.setHtml("<p style='color:#888'>불러오는 중…</p>")
+
+    def set_interlinear_error(self, message: str):
+        self.interlinear.set_error(message)
+
+    def set_commentary_error(self, message: str):
+        self.commentary.setHtml(
+            f"<p style='color:#a00'>주석 가져오기 실패<br><small>{message}</small></p>"
+        )
+
+
+def _wrap_in_scroll(content: QWidget) -> QScrollArea:
+    scroll = QScrollArea()
+    scroll.setWidget(content)
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    return scroll
 
 
 # ---------- 메인 윈도우 ----------
@@ -231,27 +269,25 @@ class MainWindow(QMainWindow):
         self._worker: FetchWorker | None = None
 
         self.setWindowTitle("CrossBible — 다중 번역 성경 학습")
-        self.resize(1400, 900)
+        self.resize(1700, 1000)
 
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(8)
 
         root.addLayout(self._build_selector())
 
         split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self._build_translations())
-        split.addWidget(self._build_side())
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
+        split.addWidget(self._build_translations_column())
+        split.addWidget(self._build_side_column())
+        split.setSizes([900, 800])
         root.addWidget(split, 1)
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("준비됨")
 
-        # 단축키
-        QShortcut(QKeySequence("Return"), self.book_box, activated=self._on_lookup)
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._on_lookup)
 
         self._on_book_changed(0)
@@ -292,33 +328,47 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
         return row
 
-    def _build_translations(self) -> QWidget:
-        container = QWidget()
-        layout = QHBoxLayout(container)
+    def _build_translations_column(self) -> QScrollArea:
+        self._translations_container = QWidget()
+        layout = QVBoxLayout(self._translations_container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         self.panels: dict[str, TranslationPanel] = {}
-        # 4개 패널을 2x2 로 — 가로폭이 좁아도 깨지지 않게 grid 대신 splitter 중첩
-        top = QSplitter(Qt.Orientation.Horizontal)
-        bottom = QSplitter(Qt.Orientation.Horizontal)
-        codes = CrossBibleFetcher.TRANSLATIONS
-        for i, code in enumerate(codes):
-            parent = top if i < 2 else bottom
-            p = TranslationPanel(code, CrossBibleFetcher.TRANSLATION_LABELS[code])
-            self.panels[code] = p
-            parent.addWidget(p)
+        for i, code in enumerate(CrossBibleFetcher.TRANSLATIONS):
+            panel = TranslationPanel(code, CrossBibleFetcher.TRANSLATION_LABELS[code])
+            self.panels[code] = panel
+            layout.addWidget(panel)
+            if i < len(CrossBibleFetcher.TRANSLATIONS) - 1:
+                layout.addWidget(_hline())
 
-        v_split = QSplitter(Qt.Orientation.Vertical)
-        v_split.addWidget(top)
-        v_split.addWidget(bottom)
-        v_split.setStretchFactor(0, 1)
-        v_split.setStretchFactor(1, 1)
-        layout.addWidget(v_split)
-        return container
+        layout.addStretch(1)
+        return _wrap_in_scroll(self._translations_container)
 
-    def _build_side(self) -> QWidget:
-        self.verse_tabs = VerseTabs(self.storage)
-        return self.verse_tabs
+    def _build_side_column(self) -> QScrollArea:
+        self._side_container = QWidget()
+        self._side_layout = QVBoxLayout(self._side_container)
+        self._side_layout.setContentsMargins(0, 0, 0, 0)
+        self._side_layout.setSpacing(0)
+        self._side_layout.addStretch(1)
+
+        self.verse_blocks: dict[int, VerseBlock] = {}
+        return _wrap_in_scroll(self._side_container)
+
+    def _rebuild_side(self, ref: Reference):
+        # 기존 블록 제거
+        for block in self.verse_blocks.values():
+            block.setParent(None)
+            block.deleteLater()
+        self.verse_blocks.clear()
+        # stretch 위에 새 블록 삽입
+        # stretch 가 항상 마지막 항목이라 가정 — 그 앞 위치에 insertWidget
+        stretch_idx = self._side_layout.count() - 1
+        for v in ref.verse_numbers():
+            block = VerseBlock(ref, v, self.storage)
+            self.verse_blocks[v] = block
+            self._side_layout.insertWidget(stretch_idx, block)
+            stretch_idx += 1
 
     # ---- 선택 처리 ----
 
@@ -330,7 +380,6 @@ class MainWindow(QMainWindow):
         _, _, chapters = info
         self.chap_box.setRange(1, chapters)
         self.chap_box.setValue(1)
-        # 절 범위는 실제 본문을 모르므로 표준 최대치 200으로 둠
 
     def _on_chap_changed(self, _value: int):
         self.verse_start.setValue(1)
@@ -369,9 +418,8 @@ class MainWindow(QMainWindow):
 
         for panel in self.panels.values():
             panel.set_loading()
-        self.verse_tabs.reset(ref)
+        self._rebuild_side(ref)
 
-        # include_extras: 절 수가 너무 많지 않을 때만 원어/주석 가져옴
         include_extras = (ref.verse_end - ref.verse_start) <= 5
 
         self._thread = QThread(self)
@@ -395,16 +443,36 @@ class MainWindow(QMainWindow):
             panel.set_verses(verses)
 
     def _on_interlinear_ready(self, verse: int, words: list):
-        self.verse_tabs.set_interlinear(verse, words)
+        block = self.verse_blocks.get(verse)
+        if block:
+            block.set_interlinear(words)
 
     def _on_commentary_ready(self, verse: int, text: str):
-        self.verse_tabs.set_commentary(verse, text)
+        block = self.verse_blocks.get(verse)
+        if block:
+            block.set_commentary(text)
 
     def _on_error(self, source: str, message: str):
         if source in self.panels:
             self.panels[source].set_error(message)
+        elif source == "interlinear":
+            # message 형식 "v3: ..."
+            try:
+                num = int(message.split(":")[0].lstrip("v"))
+                block = self.verse_blocks.get(num)
+                if block:
+                    block.set_interlinear_error(message)
+            except Exception:
+                self.statusBar().showMessage(f"[{source}] {message}", 8000)
+        elif source == "commentary":
+            try:
+                num = int(message.split(":")[0].lstrip("v"))
+                block = self.verse_blocks.get(num)
+                if block:
+                    block.set_commentary_error(message)
+            except Exception:
+                self.statusBar().showMessage(f"[{source}] {message}", 8000)
         else:
-            # interlinear/commentary 류는 절별 메시지에 verse 번호 포함됨
             self.statusBar().showMessage(f"[{source}] {message}", 8000)
 
     def _on_finished(self):
