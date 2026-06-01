@@ -64,11 +64,10 @@ class FetchWorker(QObject):
     error = pyqtSignal(str, str)                    # source, message
     finished = pyqtSignal()
 
-    def __init__(self, fetcher: CrossBibleFetcher, ref: Reference, include_extras: bool):
+    def __init__(self, fetcher: CrossBibleFetcher, ref: Reference):
         super().__init__()
         self.fetcher = fetcher
         self.ref = ref
-        self.include_extras = include_extras
         self._cancel = False
 
     def cancel(self):
@@ -84,20 +83,19 @@ class FetchWorker(QObject):
             except Exception as e:
                 self.error.emit(t, str(e))
 
-        if self.include_extras and not self._cancel:
-            for v in self.ref.verse_numbers():
-                if self._cancel:
-                    break
-                try:
-                    words = self.fetcher.get_interlinear(self.ref.book_en, self.ref.chapter, v)
-                    self.interlinear_ready.emit(v, words)
-                except Exception as e:
-                    self.error.emit("interlinear", f"v{v}: {e}")
-                try:
-                    text = self.fetcher.get_commentary(self.ref.book_en, self.ref.chapter, v)
-                    self.commentary_ready.emit(v, text)
-                except Exception as e:
-                    self.error.emit("commentary", f"v{v}: {e}")
+        for v in self.ref.verse_numbers():
+            if self._cancel:
+                break
+            try:
+                words = self.fetcher.get_interlinear(self.ref.book_en, self.ref.chapter, v)
+                self.interlinear_ready.emit(v, words)
+            except Exception as e:
+                self.error.emit("interlinear", f"v{v}: {e}")
+            try:
+                text = self.fetcher.get_commentary(self.ref.book_en, self.ref.chapter, v)
+                self.commentary_ready.emit(v, text)
+            except Exception as e:
+                self.error.emit("commentary", f"v{v}: {e}")
 
         self.finished.emit()
 
@@ -177,6 +175,15 @@ class InterlinearTable(QTableWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def set_loading(self):
+        self.setRowCount(1)
+        item = QTableWidgetItem("불러오는 중…")
+        item.setForeground(Qt.GlobalColor.gray)
+        self.setItem(0, 0, item)
+        for c in (1, 2, 3):
+            self.setItem(0, c, QTableWidgetItem(""))
+        self._fit_height()
 
     def set_words(self, words: list[dict[str, str]]):
         self.setRowCount(len(words))
@@ -270,6 +277,7 @@ class VerseBlock(QWidget):
         self.commentary.setHtml("\n".join(html_parts) or "<p style='color:#888'>주석 없음</p>")
 
     def set_loading(self):
+        self.interlinear.set_loading()
         self.commentary.setHtml("<p style='color:#888'>불러오는 중…</p>")
 
     def set_interlinear_error(self, message: str):
@@ -311,16 +319,18 @@ class MainWindow(QMainWindow):
 
         root.addLayout(self._build_selector())
 
-        split = QSplitter(Qt.Orientation.Horizontal)
-        split.addWidget(self._build_translations_column())
-        split.addWidget(self._build_side_column())
-        split.setSizes([900, 800])
-        root.addWidget(split, 1)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.addWidget(self._build_translations_column())
+        self._side_scroll = self._build_side_column()
+        self._splitter.addWidget(self._side_scroll)
+        self._splitter.setSizes([900, 800])
+        root.addWidget(self._splitter, 1)
 
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("준비됨")
 
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._on_lookup)
+        QShortcut(QKeySequence("F9"), self, activated=self.side_toggle_btn.toggle)
 
         self._on_book_changed(0)
 
@@ -367,6 +377,13 @@ class MainWindow(QMainWindow):
         row.addWidget(self.lookup_btn)
 
         row.addStretch(1)
+
+        self.side_toggle_btn = QPushButton("원어/주석/메모 패널")
+        self.side_toggle_btn.setCheckable(True)
+        self.side_toggle_btn.setChecked(True)
+        self.side_toggle_btn.setToolTip("F9: 오른쪽 패널 켜기/끄기")
+        self.side_toggle_btn.toggled.connect(self._on_side_toggled)
+        row.addWidget(self.side_toggle_btn)
         return row
 
     def _build_translations_column(self) -> QScrollArea:
@@ -407,6 +424,7 @@ class MainWindow(QMainWindow):
         stretch_idx = self._side_layout.count() - 1
         for v in ref.verse_numbers():
             block = VerseBlock(ref, v, self.storage)
+            block.set_loading()
             self.verse_blocks[v] = block
             self._side_layout.insertWidget(stretch_idx, block)
             stretch_idx += 1
@@ -461,10 +479,13 @@ class MainWindow(QMainWindow):
             panel.set_loading()
         self._rebuild_side(ref)
 
-        include_extras = (ref.verse_end - ref.verse_start) <= 5
+        # 진행 카운터: 절 수 × (원어 + 주석)
+        verse_count = ref.verse_end - ref.verse_start + 1
+        self._extras_total = verse_count * 2
+        self._extras_done = 0
 
         self._thread = QThread(self)
-        self._worker = FetchWorker(self.fetcher, ref, include_extras)
+        self._worker = FetchWorker(self.fetcher, ref)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
 
@@ -487,11 +508,20 @@ class MainWindow(QMainWindow):
         block = self.verse_blocks.get(verse)
         if block:
             block.set_interlinear(words)
+        self._bump_extras_progress()
 
     def _on_commentary_ready(self, verse: int, text: str):
         block = self.verse_blocks.get(verse)
         if block:
             block.set_commentary(text)
+        self._bump_extras_progress()
+
+    def _bump_extras_progress(self):
+        self._extras_done += 1
+        if self._extras_done < self._extras_total:
+            self.statusBar().showMessage(
+                f"원어/주석 {self._extras_done}/{self._extras_total} 처리 중…"
+            )
 
     def _on_error(self, source: str, message: str):
         if source in self.panels:
@@ -520,6 +550,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("완료", 3000)
         self._worker = None
         self._thread = None
+
+    def _on_side_toggled(self, checked: bool):
+        self._side_scroll.setVisible(checked)
+        if checked:
+            self._splitter.setSizes([900, 800])
+        self.side_toggle_btn.setText(
+            "원어/주석/메모 패널" if checked else "원어/주석/메모 패널 (꺼짐)"
+        )
 
 
 def run():
