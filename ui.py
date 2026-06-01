@@ -7,6 +7,7 @@ from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QCompleter,
     QFrame,
@@ -64,17 +65,18 @@ class FetchWorker(QObject):
     error = pyqtSignal(str, str)                    # source, message
     finished = pyqtSignal()
 
-    def __init__(self, fetcher: CrossBibleFetcher, ref: Reference):
+    def __init__(self, fetcher: CrossBibleFetcher, ref: Reference, translations: list[str]):
         super().__init__()
         self.fetcher = fetcher
         self.ref = ref
+        self.translations = translations
         self._cancel = False
 
     def cancel(self):
         self._cancel = True
 
     def run(self):
-        for t in CrossBibleFetcher.TRANSLATIONS:
+        for t in self.translations:
             if self._cancel:
                 break
             try:
@@ -318,6 +320,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(8)
 
         root.addLayout(self._build_selector())
+        root.addLayout(self._build_translation_filter())
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.addWidget(self._build_translations_column())
@@ -384,6 +387,19 @@ class MainWindow(QMainWindow):
         self.side_toggle_btn.setToolTip("F9: 오른쪽 패널 켜기/끄기")
         self.side_toggle_btn.toggled.connect(self._on_side_toggled)
         row.addWidget(self.side_toggle_btn)
+        return row
+
+    def _build_translation_filter(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(QLabel("표시할 번역:"))
+        self.translation_checks: dict[str, QCheckBox] = {}
+        for code in CrossBibleFetcher.TRANSLATIONS:
+            cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
+            cb.setChecked(True)
+            cb.toggled.connect(lambda checked, c=code: self._on_translation_toggled(c, checked))
+            self.translation_checks[code] = cb
+            row.addWidget(cb)
+        row.addStretch(1)
         return row
 
     def _build_translations_column(self) -> QScrollArea:
@@ -475,8 +491,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{ref.header_ko} ({ref.header_en}) 조회 중…")
         self.setWindowTitle(f"CrossBible — {ref.header_ko}")
 
-        for panel in self.panels.values():
-            panel.set_loading()
+        enabled = self._enabled_translations()
+        for code, panel in self.panels.items():
+            if code in enabled:
+                panel.set_loading()
         self._rebuild_side(ref)
 
         # 진행 카운터: 절 수 × (원어 + 주석)
@@ -485,7 +503,7 @@ class MainWindow(QMainWindow):
         self._extras_done = 0
 
         self._thread = QThread(self)
-        self._worker = FetchWorker(self.fetcher, ref)
+        self._worker = FetchWorker(self.fetcher, ref, enabled)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
 
@@ -558,6 +576,26 @@ class MainWindow(QMainWindow):
         self.side_toggle_btn.setText(
             "원어/주석/메모 패널" if checked else "원어/주석/메모 패널 (꺼짐)"
         )
+
+    def _on_translation_toggled(self, code: str, checked: bool):
+        panel = self.panels.get(code)
+        if panel is not None:
+            panel.setVisible(checked)
+        # 최소 한 개는 켜두도록 강제: 마지막 하나를 끄면 다시 자동 체크.
+        if not any(cb.isChecked() for cb in self.translation_checks.values()):
+            cb = self.translation_checks[code]
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
+            if panel is not None:
+                panel.setVisible(True)
+            self.statusBar().showMessage("번역본을 최소 하나는 켜두세요.", 3000)
+
+    def _enabled_translations(self) -> list[str]:
+        return [
+            code for code in CrossBibleFetcher.TRANSLATIONS
+            if self.translation_checks[code].isChecked()
+        ]
 
 
 def _resource_path(rel: str) -> Path:
