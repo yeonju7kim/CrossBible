@@ -1,22 +1,33 @@
-"""PyQt6 메인 윈도우 — wide layout, 세로 스택, 양쪽 패널 스크롤."""
+"""PyQt6 메인 윈도우 — 메뉴바, i18n, 테마, 오프라인 다운로드."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon, QKeySequence, QShortcut
+from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QIcon,
+    QKeySequence,
+    QPalette,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QCompleter,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -36,33 +47,386 @@ from reference import Reference
 from storage import Storage
 
 
+# ---------- i18n ----------
+
+LANGUAGES = ["ko", "en"]
+LANGUAGE_LABELS = {"ko": "한국어", "en": "English"}
+
+STRINGS: dict[str, dict[str, str]] = {
+    "ko": {
+        "app.title": "CrossBible — 다중 번역 성경 학습",
+        "app.title_with_ref": "CrossBible — {ref}",
+        "status.ready": "준비됨",
+        "status.done": "완료",
+        "status.looking_up": "{ref_ko} ({ref_en}) 조회 중…",
+        "status.extras_progress": "원어/주석 {done}/{total} 처리 중…",
+        "status.min_one_translation": "번역본을 최소 하나는 켜두세요.",
+        "selector.book": "책",
+        "selector.chapter": "장",
+        "selector.verse": "절",
+        "selector.range_sep": "~",
+        "selector.lookup": "조회 (Ctrl+Enter)",
+        "selector.side_on": "원어/주석/메모 패널",
+        "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
+        "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
+        "filter.show_translations": "표시할 번역:",
+        "verse.interlinear_section": "원어 (BibleHub Interlinear)",
+        "verse.commentary_section": "주석 (BibleHub Commentaries)",
+        "verse.note_section": "메모",
+        "verse.note_placeholder": "이 절에 대한 메모를 입력하세요. (자동 저장)",
+        "verse.loading": "불러오는 중…",
+        "verse.no_commentary": "주석 없음",
+        "verse.fetch_failed": "가져오기 실패",
+        "verse.commentary_failed": "주석 가져오기 실패",
+        "interlinear.col_strong": "Strong",
+        "interlinear.col_original": "원어",
+        "interlinear.col_translit": "음역",
+        "interlinear.col_english": "영어",
+        "interlinear.error": "오류",
+        "biblehub.label": "BibleHub:",
+        "biblehub.compare": "본문 비교",
+        "biblehub.interlinear": "원어",
+        "biblehub.commentary": "주석",
+        "biblehub.lexicon": "렉시콘",
+        "lookup.range_too_big_title": "범위 큼",
+        "lookup.range_too_big_body": "한 번에 20절 이하로 조회해 주세요.",
+        "menu.settings": "설정",
+        "menu.tools": "도구",
+        "menu.theme": "테마",
+        "menu.language": "언어",
+        "menu.download_all": "전체 다운로드…",
+        "menu.dictionary": "영어사전…",
+        "dictionary.title": "영어사전 (한↔영)",
+        "dictionary.prompt": "단어 또는 짧은 구절을 입력하세요. 한글이면 영어로, 영어면 한글로 번역됩니다.",
+        "dictionary.search": "검색",
+        "dictionary.empty": "검색어를 입력하세요.",
+        "dictionary.error": "번역 실패: {message}",
+        "language.restart_title": "재시작 필요",
+        "language.restart_body": "언어를 바꾸려면 앱을 다시 시작하세요.",
+        "download.title": "전체 다운로드",
+        "download.prompt_title": "전체 다운로드",
+        "download.prompt_body": (
+            "현재 체크된 번역본 ({translations}) 의 모든 책·장을 받아 캐시합니다.\n"
+            "총 {total}개 페이지 호출, 약 {minutes}분 소요. 사이 약 0.7초씩 throttle.\n\n"
+            "본문은 사용자 본인 PC의 SQLite 캐시에만 저장됩니다. "
+            "개인 학습/연구 용도로만 사용해 주세요.\n\n"
+            "지금 시작할까요?"
+        ),
+        "download.preparing": "준비 중…",
+        "download.cancel": "취소",
+        "download.canceled_title": "취소됨",
+        "download.canceled_body": "다운로드가 취소되었습니다. {done}/{total} 까지 캐시됨.",
+        "download.done_title": "다운로드 완료",
+        "download.done_body": "{done}/{total} 페이지 캐시됨. 실패: {failures}",
+        "download.in_progress": "이미 다운로드가 진행 중입니다.",
+    },
+    "en": {
+        "app.title": "CrossBible — Multi-translation Bible Study",
+        "app.title_with_ref": "CrossBible — {ref}",
+        "status.ready": "Ready",
+        "status.done": "Done",
+        "status.looking_up": "Looking up {ref_ko} ({ref_en})…",
+        "status.extras_progress": "Original / commentary {done}/{total}…",
+        "status.min_one_translation": "Keep at least one translation enabled.",
+        "selector.book": "Book",
+        "selector.chapter": "Chap",
+        "selector.verse": "Verse",
+        "selector.range_sep": "~",
+        "selector.lookup": "Look up (Ctrl+Enter)",
+        "selector.side_on": "Original / Commentary / Notes",
+        "selector.side_off": "Original / Commentary / Notes (off)",
+        "selector.side_tooltip": "F9: toggle the right panel",
+        "filter.show_translations": "Show translations:",
+        "verse.interlinear_section": "Original (BibleHub Interlinear)",
+        "verse.commentary_section": "Commentary (BibleHub Commentaries)",
+        "verse.note_section": "Notes",
+        "verse.note_placeholder": "Write your note for this verse. (auto-saved)",
+        "verse.loading": "Loading…",
+        "verse.no_commentary": "No commentary",
+        "verse.fetch_failed": "Fetch failed",
+        "verse.commentary_failed": "Commentary fetch failed",
+        "interlinear.col_strong": "Strong",
+        "interlinear.col_original": "Original",
+        "interlinear.col_translit": "Translit",
+        "interlinear.col_english": "English",
+        "interlinear.error": "Error",
+        "biblehub.label": "BibleHub:",
+        "biblehub.compare": "compare",
+        "biblehub.interlinear": "interlinear",
+        "biblehub.commentary": "commentary",
+        "biblehub.lexicon": "lexicon",
+        "lookup.range_too_big_title": "Range too big",
+        "lookup.range_too_big_body": "Please look up at most 20 verses at a time.",
+        "menu.settings": "Settings",
+        "menu.tools": "Tools",
+        "menu.theme": "Theme",
+        "menu.language": "Language",
+        "menu.download_all": "Download all chapters…",
+        "menu.dictionary": "Dictionary…",
+        "dictionary.title": "Dictionary (Korean ↔ English)",
+        "dictionary.prompt": "Type a word or short phrase. Korean is translated to English and vice versa.",
+        "dictionary.search": "Search",
+        "dictionary.empty": "Enter a word to look up.",
+        "dictionary.error": "Translation failed: {message}",
+        "language.restart_title": "Restart required",
+        "language.restart_body": "Restart the app to apply the language change.",
+        "download.title": "Download all",
+        "download.prompt_title": "Download all chapters",
+        "download.prompt_body": (
+            "This will cache every book/chapter of the currently enabled translations ({translations}).\n"
+            "Total: {total} page requests, ~{minutes} minutes (throttled ~0.7s each).\n\n"
+            "Text is stored only in your local SQLite cache. "
+            "For personal study/research use.\n\n"
+            "Start now?"
+        ),
+        "download.preparing": "Preparing…",
+        "download.cancel": "Cancel",
+        "download.canceled_title": "Canceled",
+        "download.canceled_body": "Download canceled. Cached up to {done}/{total}.",
+        "download.done_title": "Download complete",
+        "download.done_body": "{done}/{total} pages cached. Failures: {failures}",
+        "download.in_progress": "A download is already in progress.",
+    },
+}
+
+_CURRENT_LANG = "ko"
+
+
+def set_language(lang: str) -> None:
+    global _CURRENT_LANG
+    if lang in STRINGS:
+        _CURRENT_LANG = lang
+
+
+def tr(key: str, **kwargs) -> str:
+    table = STRINGS.get(_CURRENT_LANG, STRINGS["ko"])
+    value = table.get(key) or STRINGS["ko"].get(key) or key
+    if kwargs:
+        try:
+            return value.format(**kwargs)
+        except Exception:
+            return value
+    return value
+
+
+# ---------- BibleHub 링크 ----------
+
 def _biblehub_links_html(book_en: str, chapter: int, verse: int) -> str:
-    """절 헤더 옆에 표시할 BibleHub 링크 한 줄 (HTML)."""
     slug = BIBLEHUB_BOOK_SLUGS.get(book_en)
     if not slug:
         return ""
     base = "https://biblehub.com"
     cv = f"{chapter}-{verse}"
     parts = [
-        f'<a href="{base}/{slug}/{cv}.htm">본문 비교</a>',
-        f'<a href="{base}/interlinear/{slug}/{cv}.htm">원어</a>',
-        f'<a href="{base}/commentaries/{slug}/{cv}.htm">주석</a>',
-        f'<a href="{base}/lexicon/{slug}/{cv}.htm">렉시콘</a>',
+        f'<a href="{base}/{slug}/{cv}.htm">{tr("biblehub.compare")}</a>',
+        f'<a href="{base}/interlinear/{slug}/{cv}.htm">{tr("biblehub.interlinear")}</a>',
+        f'<a href="{base}/commentaries/{slug}/{cv}.htm">{tr("biblehub.commentary")}</a>',
+        f'<a href="{base}/lexicon/{slug}/{cv}.htm">{tr("biblehub.lexicon")}</a>',
     ]
     return (
-        "<span style='font-size:10pt; color:#555'>BibleHub: "
+        f"<span style='font-size:10pt; color:#888'>{tr('biblehub.label')} "
         + " · ".join(parts)
         + "</span>"
     )
 
 
+# ---------- 테마 ----------
+
+THEMES = ["System", "Fusion Light", "Fusion Dark", "Solarized Light"]
+
+
+def apply_theme(app: QApplication, theme: str) -> None:
+    if theme == "System":
+        app.setStyle("")
+        app.setPalette(app.style().standardPalette())
+        return
+
+    app.setStyle("Fusion")
+
+    if theme == "Fusion Light":
+        app.setPalette(app.style().standardPalette())
+        return
+
+    p = QPalette()
+
+    if theme == "Fusion Dark":
+        bg = QColor(53, 53, 53)
+        base = QColor(35, 35, 35)
+        text = QColor(220, 220, 220)
+        highlight = QColor(42, 130, 218)
+        p.setColor(QPalette.ColorRole.Window, bg)
+        p.setColor(QPalette.ColorRole.WindowText, text)
+        p.setColor(QPalette.ColorRole.Base, base)
+        p.setColor(QPalette.ColorRole.AlternateBase, bg)
+        p.setColor(QPalette.ColorRole.Text, text)
+        p.setColor(QPalette.ColorRole.Button, bg)
+        p.setColor(QPalette.ColorRole.ButtonText, text)
+        p.setColor(QPalette.ColorRole.ToolTipBase, bg)
+        p.setColor(QPalette.ColorRole.ToolTipText, text)
+        p.setColor(QPalette.ColorRole.PlaceholderText, QColor(150, 150, 150))
+        p.setColor(QPalette.ColorRole.Highlight, highlight)
+        p.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
+        p.setColor(QPalette.ColorRole.Link, QColor(100, 170, 240))
+    elif theme == "Solarized Light":
+        bg = QColor(253, 246, 227)
+        base = QColor(238, 232, 213)
+        text = QColor(88, 110, 117)
+        highlight = QColor(38, 139, 210)
+        p.setColor(QPalette.ColorRole.Window, bg)
+        p.setColor(QPalette.ColorRole.WindowText, text)
+        p.setColor(QPalette.ColorRole.Base, base)
+        p.setColor(QPalette.ColorRole.AlternateBase, bg)
+        p.setColor(QPalette.ColorRole.Text, text)
+        p.setColor(QPalette.ColorRole.Button, base)
+        p.setColor(QPalette.ColorRole.ButtonText, text)
+        p.setColor(QPalette.ColorRole.ToolTipBase, base)
+        p.setColor(QPalette.ColorRole.ToolTipText, text)
+        p.setColor(QPalette.ColorRole.PlaceholderText, QColor(147, 161, 161))
+        p.setColor(QPalette.ColorRole.Highlight, highlight)
+        p.setColor(QPalette.ColorRole.HighlightedText, Qt.GlobalColor.white)
+        p.setColor(QPalette.ColorRole.Link, QColor(38, 139, 210))
+    else:
+        p = app.style().standardPalette()
+
+    app.setPalette(p)
+
+
 # ---------- 백그라운드 작업 ----------
 
+class DownloadWorker(QObject):
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(int, int, list)
+
+    def __init__(self, fetcher: CrossBibleFetcher, translations: list[str]):
+        super().__init__()
+        self.fetcher = fetcher
+        self.translations = translations
+        self._cancel = False
+
+    def cancel(self):
+        self._cancel = True
+
+    def run(self):
+        done, total, failures = self.fetcher.download_all(
+            self.translations,
+            progress_cb=lambda d, t, label: self.progress.emit(d, t, label),
+            cancel_cb=lambda: self._cancel,
+        )
+        self.finished.emit(done, total, failures)
+
+
+class TranslateWorker(QObject):
+    """사전 다이얼로그용 단어 번역 워커."""
+
+    done = pyqtSignal(str, str, str, str)   # source_lang, target_lang, translated, original
+    error = pyqtSignal(str)
+
+    def __init__(self, text: str):
+        super().__init__()
+        self.text = text
+
+    def run(self):
+        try:
+            from translator import translate
+            src, tgt, translated = translate(self.text)
+            self.done.emit(src, tgt, translated, self.text)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class DictionaryDialog(QDialog):
+    """한↔영 단어 번역 팝업창."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("dictionary.title"))
+        self.resize(560, 380)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+
+        prompt = QLabel(tr("dictionary.prompt"))
+        prompt.setWordWrap(True)
+        prompt.setStyleSheet("color:#888;")
+        v.addWidget(prompt)
+
+        input_row = QHBoxLayout()
+        self.input_edit = QLineEdit()
+        self.input_edit.returnPressed.connect(self._lookup)
+        self.search_btn = QPushButton(tr("dictionary.search"))
+        self.search_btn.clicked.connect(self._lookup)
+        input_row.addWidget(self.input_edit, 1)
+        input_row.addWidget(self.search_btn)
+        v.addLayout(input_row)
+
+        self.result = QTextBrowser()
+        self.result.setOpenExternalLinks(True)
+        v.addWidget(self.result, 1)
+
+        self._thread: QThread | None = None
+        self._worker: TranslateWorker | None = None
+
+        self.input_edit.setFocus()
+
+    def _lookup(self):
+        text = self.input_edit.text().strip()
+        if not text:
+            self.result.setHtml(f"<p style='color:#888'>{tr('dictionary.empty')}</p>")
+            return
+
+        if self._thread is not None:
+            try:
+                self._thread.quit()
+                self._thread.wait()
+            except Exception:
+                pass
+
+        self.search_btn.setEnabled(False)
+        self.result.setHtml(f"<p style='color:#888'>{tr('verse.loading')}</p>")
+
+        self._thread = QThread(self)
+        self._worker = TranslateWorker(text)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.done.connect(self._on_done)
+        self._worker.error.connect(self._on_error)
+        self._worker.done.connect(self._thread.quit)
+        self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._cleanup)
+        self._thread.start()
+
+    def _on_done(self, src: str, tgt: str, translated: str, original: str):
+        safe_original = original.replace("<", "&lt;").replace(">", "&gt;")
+        safe_translated = translated.replace("<", "&lt;").replace(">", "&gt;")
+        html = (
+            f"<p style='color:#888; font-size:9pt'>{src} → {tgt}</p>"
+            f"<p style='font-size:11pt'><b>{safe_original}</b></p>"
+            f"<hr/>"
+            f"<p style='font-size:15pt'>{safe_translated}</p>"
+        )
+        self.result.setHtml(html)
+
+    def _on_error(self, message: str):
+        self.result.setHtml(
+            f"<p style='color:#c33'>{tr('dictionary.error', message=message)}</p>"
+        )
+
+    def _cleanup(self):
+        if self._worker is not None:
+            self._worker.deleteLater()
+        if self._thread is not None:
+            self._thread.deleteLater()
+        self._worker = None
+        self._thread = None
+        self.search_btn.setEnabled(True)
+
+
 class FetchWorker(QObject):
-    verses_ready = pyqtSignal(str, list)            # translation, [(n, text)]
-    interlinear_ready = pyqtSignal(int, list)       # verse_num, [{strong,...}]
-    commentary_ready = pyqtSignal(int, str)         # verse_num, text
-    error = pyqtSignal(str, str)                    # source, message
+    verses_ready = pyqtSignal(str, list)
+    interlinear_ready = pyqtSignal(int, list)
+    commentary_ready = pyqtSignal(int, str)
+    error = pyqtSignal(str, str)
     finished = pyqtSignal()
 
     def __init__(self, fetcher: CrossBibleFetcher, ref: Reference, translations: list[str]):
@@ -121,8 +485,6 @@ def _hline() -> QFrame:
 
 
 class TranslationPanel(QWidget):
-    """번역본 하나 — 라벨 + 본문 (QLabel, 자동 줄바꿈/자동 높이)."""
-
     def __init__(self, translation: str, label: str):
         super().__init__()
         self.translation = translation
@@ -141,7 +503,6 @@ class TranslationPanel(QWidget):
         )
         self.body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        # 한국어 번역본 글꼴 살짝 키움
         if translation in ("GAE", "KLB"):
             f = self.body.font()
             f.setPointSize(f.pointSize() + 1)
@@ -156,31 +517,33 @@ class TranslationPanel(QWidget):
 
     def set_error(self, message: str):
         self.body.setText(
-            f"<p style='color:#a00'>가져오기 실패<br><small>{message}</small></p>"
+            f"<p style='color:#c33'>{tr('verse.fetch_failed')}<br><small>{message}</small></p>"
         )
 
     def set_loading(self):
-        self.body.setText("<p style='color:#888'>불러오는 중…</p>")
+        self.body.setText(f"<p style='color:#888'>{tr('verse.loading')}</p>")
 
 
 class InterlinearTable(QTableWidget):
-    """모든 행을 표시하는 높이 고정 테이블."""
-
     def __init__(self):
         super().__init__(0, 4)
-        self.setHorizontalHeaderLabels(["Strong", "원어", "음역", "영어"])
+        self.setHorizontalHeaderLabels([
+            tr("interlinear.col_strong"),
+            tr("interlinear.col_original"),
+            tr("interlinear.col_translit"),
+            tr("interlinear.col_english"),
+        ])
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.verticalHeader().setVisible(False)
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        # 내부 스크롤 끄기 — 부모 ScrollArea 가 처리
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def set_loading(self):
         self.setRowCount(1)
-        item = QTableWidgetItem("불러오는 중…")
+        item = QTableWidgetItem(tr("verse.loading"))
         item.setForeground(Qt.GlobalColor.gray)
         self.setItem(0, 0, item)
         for c in (1, 2, 3):
@@ -201,7 +564,7 @@ class InterlinearTable(QTableWidget):
 
     def set_error(self, message: str):
         self.setRowCount(1)
-        self.setItem(0, 0, QTableWidgetItem("오류"))
+        self.setItem(0, 0, QTableWidgetItem(tr("interlinear.error")))
         self.setItem(0, 1, QTableWidgetItem(message))
         self._fit_height()
 
@@ -213,8 +576,6 @@ class InterlinearTable(QTableWidget):
 
 
 class VerseBlock(QWidget):
-    """한 절에 대한 [헤더 · 원어 · 주석 · 메모] 묶음."""
-
     def __init__(self, ref: Reference, verse: int, storage: Storage):
         super().__init__()
         self.ref = ref
@@ -238,19 +599,19 @@ class VerseBlock(QWidget):
         header_row.addWidget(links, 1)
         v.addLayout(header_row)
 
-        v.addWidget(_section_label("원어 (BibleHub Interlinear)", level=2))
+        v.addWidget(_section_label(tr("verse.interlinear_section"), level=2))
         self.interlinear = InterlinearTable()
         v.addWidget(self.interlinear)
 
-        v.addWidget(_section_label("주석 (BibleHub Commentaries)", level=2))
+        v.addWidget(_section_label(tr("verse.commentary_section"), level=2))
         self.commentary = QTextBrowser()
         self.commentary.setOpenExternalLinks(True)
         self.commentary.setFixedHeight(360)
         v.addWidget(self.commentary)
 
-        v.addWidget(_section_label("메모", level=2))
+        v.addWidget(_section_label(tr("verse.note_section"), level=2))
         self.note = QPlainTextEdit()
-        self.note.setPlaceholderText("이 절에 대한 메모를 입력하세요. (자동 저장)")
+        self.note.setPlaceholderText(tr("verse.note_placeholder"))
         self.note.setFixedHeight(150)
         self.note.setPlainText(storage.get_note(ref.book_en, ref.chapter, verse))
         self.note.textChanged.connect(self._save_note)
@@ -276,18 +637,20 @@ class VerseBlock(QWidget):
             else:
                 safe = block.replace("<", "&lt;").replace(">", "&gt;")
                 html_parts.append(f"<p>{safe}</p>")
-        self.commentary.setHtml("\n".join(html_parts) or "<p style='color:#888'>주석 없음</p>")
+        self.commentary.setHtml(
+            "\n".join(html_parts) or f"<p style='color:#888'>{tr('verse.no_commentary')}</p>"
+        )
 
     def set_loading(self):
         self.interlinear.set_loading()
-        self.commentary.setHtml("<p style='color:#888'>불러오는 중…</p>")
+        self.commentary.setHtml(f"<p style='color:#888'>{tr('verse.loading')}</p>")
 
     def set_interlinear_error(self, message: str):
         self.interlinear.set_error(message)
 
     def set_commentary_error(self, message: str):
         self.commentary.setHtml(
-            f"<p style='color:#a00'>주석 가져오기 실패<br><small>{message}</small></p>"
+            f"<p style='color:#c33'>{tr('verse.commentary_failed')}<br><small>{message}</small></p>"
         )
 
 
@@ -303,15 +666,20 @@ def _wrap_in_scroll(content: QWidget) -> QScrollArea:
 # ---------- 메인 윈도우 ----------
 
 class MainWindow(QMainWindow):
-    def __init__(self, storage: Storage, fetcher: CrossBibleFetcher):
+    def __init__(self, storage: Storage, fetcher: CrossBibleFetcher, settings: QSettings):
         super().__init__()
         self.storage = storage
         self.fetcher = fetcher
+        self.settings = settings
         self._thread: QThread | None = None
         self._worker: FetchWorker | None = None
+        self._dl_thread: QThread | None = None
+        self._dl_worker: DownloadWorker | None = None
 
-        self.setWindowTitle("CrossBible — 다중 번역 성경 학습")
+        self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
+
+        self._build_menu_bar()
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -330,68 +698,121 @@ class MainWindow(QMainWindow):
         root.addWidget(self._splitter, 1)
 
         self.setStatusBar(QStatusBar())
-        self.statusBar().showMessage("준비됨")
+        self.statusBar().showMessage(tr("status.ready"))
 
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._on_lookup)
         QShortcut(QKeySequence("F9"), self, activated=self.side_toggle_btn.toggle)
 
         self._on_book_changed(0)
 
-    # ---- UI 구성 ----
+    # ---- 메뉴 ----
+
+    def _build_menu_bar(self):
+        bar = self.menuBar()
+
+        settings_menu = bar.addMenu(tr("menu.settings"))
+
+        theme_menu = settings_menu.addMenu(tr("menu.theme"))
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        current_theme = self.settings.value("theme", "System")
+        for name in THEMES:
+            action = QAction(name, self, checkable=True)
+            action.setData(name)
+            action.setChecked(name == current_theme)
+            action.triggered.connect(lambda _checked=False, n=name: self._on_theme_chosen(n))
+            self._theme_group.addAction(action)
+            theme_menu.addAction(action)
+
+        lang_menu = settings_menu.addMenu(tr("menu.language"))
+        self._lang_group = QActionGroup(self)
+        self._lang_group.setExclusive(True)
+        for code in LANGUAGES:
+            action = QAction(LANGUAGE_LABELS[code], self, checkable=True)
+            action.setData(code)
+            action.setChecked(code == _CURRENT_LANG)
+            action.triggered.connect(lambda _checked=False, c=code: self._on_language_chosen(c))
+            self._lang_group.addAction(action)
+            lang_menu.addAction(action)
+
+        tools_menu = bar.addMenu(tr("menu.tools"))
+        dl_action = QAction(tr("menu.download_all"), self)
+        dl_action.triggered.connect(self._on_download_all)
+        tools_menu.addAction(dl_action)
+
+        dict_action = QAction(tr("menu.dictionary"), self)
+        dict_action.triggered.connect(self._on_open_dictionary)
+        tools_menu.addAction(dict_action)
+        self._dict_dialog: DictionaryDialog | None = None
+
+    def _on_theme_chosen(self, theme: str):
+        self.settings.setValue("theme", theme)
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, theme)
+
+    def _on_language_chosen(self, lang: str):
+        if lang == _CURRENT_LANG:
+            return
+        self.settings.setValue("language", lang)
+        QMessageBox.information(
+            self,
+            tr("language.restart_title"),
+            tr("language.restart_body"),
+        )
+
+    # ---- 셀렉터 ----
 
     def _build_selector(self) -> QHBoxLayout:
         row = QHBoxLayout()
 
-        row.addWidget(QLabel("책"))
+        row.addWidget(QLabel(tr("selector.book")))
         self.book_box = QComboBox()
         self.book_box.addItems(book_names_ko())
-        # 검색 가능한 콤보: "고" → 고린도전서/고린도후서/골로새서 처럼 시작 매칭으로 필터.
         self.book_box.setEditable(True)
         self.book_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         completer = self.book_box.completer()
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         completer.setFilterMode(Qt.MatchFlag.MatchStartsWith)
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        # activated: 키보드/마우스로 항목을 명시적으로 선택한 순간만 발화.
-        # currentIndexChanged 는 편집 중에도 발화되어 chap_box 초기화를 자꾸 트리거함.
         self.book_box.activated.connect(self._on_book_changed)
         row.addWidget(self.book_box, 1)
 
-        row.addWidget(QLabel("장"))
+        row.addWidget(QLabel(tr("selector.chapter")))
         self.chap_box = QSpinBox()
         self.chap_box.setRange(1, 150)
         self.chap_box.valueChanged.connect(self._on_chap_changed)
         row.addWidget(self.chap_box)
 
-        row.addWidget(QLabel("절"))
+        row.addWidget(QLabel(tr("selector.verse")))
         self.verse_start = QSpinBox()
         self.verse_start.setRange(1, 200)
         self.verse_start.setValue(1)
         row.addWidget(self.verse_start)
 
-        row.addWidget(QLabel("~"))
+        row.addWidget(QLabel(tr("selector.range_sep")))
         self.verse_end = QSpinBox()
         self.verse_end.setRange(1, 200)
         self.verse_end.setValue(1)
         row.addWidget(self.verse_end)
 
-        self.lookup_btn = QPushButton("조회 (Ctrl+Enter)")
+        self.lookup_btn = QPushButton(tr("selector.lookup"))
         self.lookup_btn.clicked.connect(self._on_lookup)
         row.addWidget(self.lookup_btn)
 
         row.addStretch(1)
 
-        self.side_toggle_btn = QPushButton("원어/주석/메모 패널")
+        self.side_toggle_btn = QPushButton(tr("selector.side_on"))
         self.side_toggle_btn.setCheckable(True)
         self.side_toggle_btn.setChecked(True)
-        self.side_toggle_btn.setToolTip("F9: 오른쪽 패널 켜기/끄기")
+        self.side_toggle_btn.setToolTip(tr("selector.side_tooltip"))
         self.side_toggle_btn.toggled.connect(self._on_side_toggled)
         row.addWidget(self.side_toggle_btn)
         return row
 
     def _build_translation_filter(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.addWidget(QLabel("표시할 번역:"))
+        row.addWidget(QLabel(tr("filter.show_translations")))
         self.translation_checks: dict[str, QCheckBox] = {}
         for code in CrossBibleFetcher.TRANSLATIONS:
             cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
@@ -425,18 +846,14 @@ class MainWindow(QMainWindow):
         self._side_layout.setContentsMargins(0, 0, 0, 0)
         self._side_layout.setSpacing(0)
         self._side_layout.addStretch(1)
-
         self.verse_blocks: dict[int, VerseBlock] = {}
         return _wrap_in_scroll(self._side_container)
 
     def _rebuild_side(self, ref: Reference):
-        # 기존 블록 제거
         for block in self.verse_blocks.values():
             block.setParent(None)
             block.deleteLater()
         self.verse_blocks.clear()
-        # stretch 위에 새 블록 삽입
-        # stretch 가 항상 마지막 항목이라 가정 — 그 앞 위치에 insertWidget
         stretch_idx = self._side_layout.count() - 1
         for v in ref.verse_numbers():
             block = VerseBlock(ref, v, self.storage)
@@ -475,10 +892,13 @@ class MainWindow(QMainWindow):
         if ref is None:
             return
         if ref.verse_end - ref.verse_start > 20:
-            QMessageBox.warning(self, "범위 큼", "한 번에 20절 이하로 조회해 주세요.")
+            QMessageBox.warning(
+                self,
+                tr("lookup.range_too_big_title"),
+                tr("lookup.range_too_big_body"),
+            )
             return
 
-        # 이전 작업 정리
         if self._thread is not None:
             try:
                 if self._worker is not None:
@@ -488,8 +908,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self.statusBar().showMessage(f"{ref.header_ko} ({ref.header_en}) 조회 중…")
-        self.setWindowTitle(f"CrossBible — {ref.header_ko}")
+        self.statusBar().showMessage(
+            tr("status.looking_up", ref_ko=ref.header_ko, ref_en=ref.header_en)
+        )
+        self.setWindowTitle(tr("app.title_with_ref", ref=ref.header_ko))
 
         enabled = self._enabled_translations()
         for code, panel in self.panels.items():
@@ -497,7 +919,6 @@ class MainWindow(QMainWindow):
                 panel.set_loading()
         self._rebuild_side(ref)
 
-        # 진행 카운터: 절 수 × (원어 + 주석)
         verse_count = ref.verse_end - ref.verse_start + 1
         self._extras_total = verse_count * 2
         self._extras_done = 0
@@ -538,14 +959,13 @@ class MainWindow(QMainWindow):
         self._extras_done += 1
         if self._extras_done < self._extras_total:
             self.statusBar().showMessage(
-                f"원어/주석 {self._extras_done}/{self._extras_total} 처리 중…"
+                tr("status.extras_progress", done=self._extras_done, total=self._extras_total)
             )
 
     def _on_error(self, source: str, message: str):
         if source in self.panels:
             self.panels[source].set_error(message)
         elif source == "interlinear":
-            # message 형식 "v3: ..."
             try:
                 num = int(message.split(":")[0].lstrip("v"))
                 block = self.verse_blocks.get(num)
@@ -565,7 +985,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"[{source}] {message}", 8000)
 
     def _on_finished(self):
-        self.statusBar().showMessage("완료", 3000)
+        self.statusBar().showMessage(tr("status.done"), 3000)
         self._worker = None
         self._thread = None
 
@@ -574,14 +994,13 @@ class MainWindow(QMainWindow):
         if checked:
             self._splitter.setSizes([900, 800])
         self.side_toggle_btn.setText(
-            "원어/주석/메모 패널" if checked else "원어/주석/메모 패널 (꺼짐)"
+            tr("selector.side_on") if checked else tr("selector.side_off")
         )
 
     def _on_translation_toggled(self, code: str, checked: bool):
         panel = self.panels.get(code)
         if panel is not None:
             panel.setVisible(checked)
-        # 최소 한 개는 켜두도록 강제: 마지막 하나를 끄면 다시 자동 체크.
         if not any(cb.isChecked() for cb in self.translation_checks.values()):
             cb = self.translation_checks[code]
             cb.blockSignals(True)
@@ -589,7 +1008,7 @@ class MainWindow(QMainWindow):
             cb.blockSignals(False)
             if panel is not None:
                 panel.setVisible(True)
-            self.statusBar().showMessage("번역본을 최소 하나는 켜두세요.", 3000)
+            self.statusBar().showMessage(tr("status.min_one_translation"), 3000)
 
     def _enabled_translations(self) -> list[str]:
         return [
@@ -597,9 +1016,101 @@ class MainWindow(QMainWindow):
             if self.translation_checks[code].isChecked()
         ]
 
+    # ---- 사전 ----
+
+    def _on_open_dictionary(self):
+        # 모드리스로 한 번만 열어 재사용
+        if self._dict_dialog is None:
+            self._dict_dialog = DictionaryDialog(self)
+        self._dict_dialog.show()
+        self._dict_dialog.raise_()
+        self._dict_dialog.activateWindow()
+        self._dict_dialog.input_edit.setFocus()
+
+    # ---- 전체 다운로드 ----
+
+    def _on_download_all(self):
+        if self._dl_thread is not None:
+            QMessageBox.information(
+                self, tr("download.title"), tr("download.in_progress")
+            )
+            return
+
+        from bible_books import BOOKS
+
+        translations = self._enabled_translations()
+        if not translations:
+            return
+        per_translation_pages = sum(chapters for _, _, _, _, chapters in BOOKS)
+        total = per_translation_pages * len(translations)
+        minutes = max(1, round(total * 0.7 / 60))
+        label_list = ", ".join(CrossBibleFetcher.TRANSLATION_LABELS[t] for t in translations)
+
+        confirm = QMessageBox.question(
+            self,
+            tr("download.prompt_title"),
+            tr(
+                "download.prompt_body",
+                translations=label_list,
+                total=total,
+                minutes=minutes,
+            ),
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        self._dl_dialog = QProgressDialog(
+            tr("download.preparing"), tr("download.cancel"), 0, total, self
+        )
+        self._dl_dialog.setWindowTitle(tr("download.title"))
+        self._dl_dialog.setMinimumDuration(0)
+        self._dl_dialog.setAutoClose(False)
+        self._dl_dialog.setAutoReset(False)
+        self._dl_dialog.setValue(0)
+
+        self._dl_thread = QThread(self)
+        self._dl_worker = DownloadWorker(self.fetcher, translations)
+        self._dl_worker.moveToThread(self._dl_thread)
+        self._dl_thread.started.connect(self._dl_worker.run)
+
+        self._dl_worker.progress.connect(self._on_dl_progress)
+        self._dl_worker.finished.connect(self._on_dl_finished)
+        self._dl_worker.finished.connect(self._dl_thread.quit)
+        self._dl_thread.finished.connect(self._dl_worker.deleteLater)
+        self._dl_thread.finished.connect(self._dl_thread.deleteLater)
+        self._dl_dialog.canceled.connect(self._dl_worker.cancel)
+
+        self._dl_thread.start()
+        self._dl_dialog.show()
+
+    def _on_dl_progress(self, done: int, total: int, label: str):
+        if hasattr(self, "_dl_dialog") and self._dl_dialog is not None:
+            self._dl_dialog.setMaximum(total)
+            self._dl_dialog.setValue(done)
+            self._dl_dialog.setLabelText(label)
+
+    def _on_dl_finished(self, done: int, total: int, failures: list):
+        if hasattr(self, "_dl_dialog") and self._dl_dialog is not None:
+            self._dl_dialog.close()
+            self._dl_dialog = None
+        self._dl_worker = None
+        self._dl_thread = None
+
+        if done < total and len(failures) == 0:
+            QMessageBox.information(
+                self,
+                tr("download.canceled_title"),
+                tr("download.canceled_body", done=done, total=total),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                tr("download.done_title"),
+                tr("download.done_body", done=done, total=total, failures=len(failures)),
+            )
+
 
 def _resource_path(rel: str) -> Path:
-    """소스 실행과 PyInstaller(_MEIPASS) 빌드 양쪽에서 동작하는 리소스 경로."""
     import sys
 
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -611,6 +1122,14 @@ def run():
 
     app = QApplication(sys.argv)
     app.setApplicationName("CrossBible")
+    app.setOrganizationName("CrossBible")
+
+    settings = QSettings("CrossBible", "CrossBible")
+    saved_lang = settings.value("language", "ko")
+    set_language(saved_lang if saved_lang in LANGUAGES else "ko")
+
+    saved_theme = settings.value("theme", "System")
+    apply_theme(app, saved_theme if saved_theme in THEMES else "System")
 
     icon_path = _resource_path("assets/icon.png")
     if icon_path.exists():
@@ -620,6 +1139,6 @@ def run():
     storage = Storage(base / "data.db")
     fetcher = CrossBibleFetcher(storage)
 
-    win = MainWindow(storage, fetcher)
+    win = MainWindow(storage, fetcher, settings)
     win.show()
     sys.exit(app.exec())

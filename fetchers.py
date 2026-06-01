@@ -124,6 +124,13 @@ class BibleGatewayFetcher:
         r.raise_for_status()
         return self._parse(r.text, ref, version)
 
+    def fetch_chapter(self, book_en: str, chapter: int, version: str) -> list[tuple[int, str]]:
+        """챕터 전체의 모든 절을 받는다 (절 범위 필터 없음, 누락 검사 없음)."""
+        q = {"search": f"{book_en} {chapter}", "version": version}
+        r = requests.get(self.URL + "?" + urlencode(q), headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        return self._parse_chapter(r.text, chapter)
+
     @staticmethod
     def _parse(html: str, ref: Reference, version: str) -> list[tuple[int, str]]:
         soup = BeautifulSoup(html, "html.parser")
@@ -164,6 +171,38 @@ class BibleGatewayFetcher:
             raise RuntimeError(f"Bible Gateway 누락 절 {missing} ({ref.header_en} {version})")
         return sorted(verses.items())
 
+    @staticmethod
+    def _parse_chapter(html: str, chapter: int) -> list[tuple[int, str]]:
+        soup = BeautifulSoup(html, "html.parser")
+        container = soup.select_one(".passage-text")
+        if container is None:
+            raise RuntimeError("Bible Gateway: passage-text 없음")
+        for sel in [
+            "sup.crossreference", "sup.footnote", "div.footnotes",
+            "div.crossrefs", "h3", "h4", "span.chapternum",
+        ]:
+            for tag in container.select(sel):
+                tag.decompose()
+
+        verses: dict[int, str] = {}
+        for span in container.select("span.text"):
+            class_str = " ".join(span.get("class", []))
+            matched = set()
+            for chap_s, verse_s in re.findall(r"[A-Za-z]\w*-(\d+)-(\d+)", class_str):
+                if int(chap_s) == chapter:
+                    matched.add(int(verse_s))
+            if not matched:
+                continue
+            for sup in span.select("sup.versenum"):
+                sup.decompose()
+            text = span.get_text(separator=" ", strip=True)
+            text = re.sub(r"\s+", " ", text).strip()
+            if not text:
+                continue
+            for n in matched:
+                verses[n] = (verses.get(n, "") + " " + text).strip()
+        return sorted(verses.items())
+
 
 # ---------- 대한성서공회: 개역개정 ----------
 
@@ -179,6 +218,16 @@ class BsKoreaFetcher:
         r.encoding = r.apparent_encoding or "utf-8"
         r.raise_for_status()
         return self._parse(r.text, ref)
+
+    def fetch_chapter(self, book_en: str, chapter: int, version: str = "GAE") -> list[tuple[int, str]]:
+        code = BSKOREA_BOOK_CODES.get(book_en)
+        if code is None:
+            raise RuntimeError(f"대한성서공회 책 코드 없음: {book_en}")
+        q = {"version": version, "book": code, "chap": str(chapter)}
+        r = requests.get(self.URL + "?" + urlencode(q), headers=HEADERS, timeout=20)
+        r.encoding = r.apparent_encoding or "utf-8"
+        r.raise_for_status()
+        return self._parse_chapter(r.text)
 
     @staticmethod
     def _parse(html: str, ref: Reference) -> list[tuple[int, str]]:
@@ -215,6 +264,33 @@ class BsKoreaFetcher:
         missing = [n for n in ref.verse_numbers() if n not in verses]
         if missing:
             raise RuntimeError(f"대한성서공회 누락 절 {missing} ({ref.header_ko})")
+        return sorted(verses.items())
+
+    @staticmethod
+    def _parse_chapter(html: str) -> list[tuple[int, str]]:
+        soup = BeautifulSoup(html, "html.parser")
+        container = soup.select_one("#tdBible1")
+        if container is None:
+            raise RuntimeError("대한성서공회 본문 컨테이너(#tdBible1) 없음")
+        for tag in container.select(
+            "div.D2, a.comment, [id^='voice'], .chapNum, .smallTitle"
+        ):
+            tag.decompose()
+
+        verses: dict[int, str] = {}
+        for outer in container.find_all("span", recursive=True):
+            num_tag = outer.find("span", class_="number", recursive=False)
+            if num_tag is None:
+                continue
+            num_text = num_tag.get_text(strip=True)
+            if not num_text.isdigit():
+                continue
+            n = int(num_text)
+            num_tag.extract()
+            text = outer.get_text(separator="", strip=False)
+            text = re.sub(r"\s+", " ", text).strip()
+            if text:
+                verses[n] = text
         return sorted(verses.items())
 
 
@@ -433,6 +509,62 @@ class CrossBibleFetcher:
         if elapsed < self.POLITE_DELAY_SEC:
             time.sleep(self.POLITE_DELAY_SEC - elapsed)
         self._last_call = time.time()
+
+    # ---- 챕터 단위 다운로드 (오프라인 사전 캐시용) ----
+
+    def fetch_chapter(self, translation: str, book_en: str, chapter: int) -> list[tuple[int, str]]:
+        if translation == "GAE":
+            return self.bsk.fetch_chapter(book_en, chapter, "GAE")
+        if translation in ("NIV", "ESV", "KLB"):
+            return self.bg.fetch_chapter(book_en, chapter, translation)
+        if translation == "WLB":
+            # WLB(YouVersion)은 현재 미연동 — 다운로드도 건너뜀
+            raise RuntimeError("WLB는 미연동 번역본입니다")
+        raise RuntimeError(f"Unsupported translation: {translation}")
+
+    def download_all(
+        self,
+        translations,
+        progress_cb=None,
+        cancel_cb=None,
+    ):
+        """모든 책의 모든 장을 받아 캐시.
+
+        progress_cb(done:int, total:int, label:str) — 진행 콜백
+        cancel_cb() -> bool — True 반환 시 중단
+        반환: (done, total, failures: list[(translation, book_en, chapter, msg)])
+        """
+        from bible_books import BOOKS
+
+        total = sum(chapters for _, _, _, _, chapters in BOOKS) * len(translations)
+        done = 0
+        failures: list[tuple[str, str, int, str]] = []
+
+        for translation in translations:
+            label = self.TRANSLATION_LABELS.get(translation, translation)
+            for book_en, book_ko, _, _, max_chap in BOOKS:
+                for chap in range(1, max_chap + 1):
+                    if cancel_cb and cancel_cb():
+                        return done, total, failures
+                    if self.storage.chapter_cached(translation, book_en, chap):
+                        done += 1
+                        if progress_cb:
+                            progress_cb(done, total, f"{label} · {book_ko} {chap}장 (캐시됨)")
+                        continue
+                    try:
+                        self._throttle()
+                        verses = self.fetch_chapter(translation, book_en, chap)
+                        if verses:
+                            self.storage.put_verses(translation, book_en, chap, verses)
+                        else:
+                            failures.append((translation, book_en, chap, "절 없음"))
+                    except Exception as e:
+                        failures.append((translation, book_en, chap, str(e)))
+                    done += 1
+                    if progress_cb:
+                        progress_cb(done, total, f"{label} · {book_ko} {chap}장")
+
+        return done, total, failures
 
     # ---- 본문 ----
 

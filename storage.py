@@ -79,6 +79,14 @@ class Storage:
             )
             self.conn.commit()
 
+    def chapter_cached(self, translation: str, book_en: str, chapter: int) -> bool:
+        with self._lock:
+            cur = self.conn.execute(
+                "SELECT 1 FROM verses WHERE translation=? AND book_en=? AND chapter=? LIMIT 1",
+                (translation, book_en, chapter),
+            )
+            return cur.fetchone() is not None
+
     # ---- per-verse blob (interlinear / commentary HTML or markdown) ----
 
     def get_blob(self, kind: str, book_en: str, chapter: int, verse: int) -> str | None:
