@@ -4,6 +4,10 @@
 
 ![Screenshot](CrossBible_Screenshot.png)
 
+사이드 패널을 끄면 (F9) 4개 번역본이 윈도우 전체로 확장됩니다:
+
+![Screenshot — no panel](CrossBible_Screenshot_nopanel.png)
+
 ## 기능
 
 - **4개 번역 동시 표시**: 개역개정 · 현대인의 성경 · NIV · ESV
