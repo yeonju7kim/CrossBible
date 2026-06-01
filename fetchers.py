@@ -34,7 +34,7 @@ BSKOREA_BOOK_CODES = {
     "Proverbs": "pro", "Ecclesiastes": "ecc", "Song of Songs": "sng",
     "Isaiah": "isa", "Jeremiah": "jer", "Lamentations": "lam",
     "Ezekiel": "ezk", "Daniel": "dan", "Hosea": "hos", "Joel": "jol",
-    "Amos": "amo", "Obadiah": "oba", "Jonah": "jon", "Micah": "mic",
+    "Amos": "amo", "Obadiah": "oba", "Jonah": "jnh", "Micah": "mic",
     "Nahum": "nam", "Habakkuk": "hab", "Zephaniah": "zep", "Haggai": "hag",
     "Zechariah": "zec", "Malachi": "mal",
     "Matthew": "mat", "Mark": "mrk", "Luke": "luk", "John": "jhn",
