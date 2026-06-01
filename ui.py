@@ -100,6 +100,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "테마",
         "menu.language": "언어",
         "menu.download_all": "전체 다운로드…",
+        "menu.help": "도움말",
+        "menu.feedback": "건의사항 · 이슈 보내기…",
         "menu.cache_info": "캐시 정보…",
         "cache.title": "캐시 정보",
         "cache.intro": (
@@ -194,6 +196,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu.theme": "Theme",
         "menu.language": "Language",
         "menu.download_all": "Download all chapters…",
+        "menu.help": "Help",
+        "menu.feedback": "Send feedback / open an issue…",
         "menu.cache_info": "Cache info…",
         "cache.title": "Cache info",
         "cache.intro": (
@@ -929,8 +933,14 @@ class MainWindow(QMainWindow):
         cache_action.triggered.connect(self._on_open_cache_info)
         tools_menu.addAction(cache_action)
 
+        help_menu = bar.addMenu(tr("menu.help"))
+        feedback_action = QAction(tr("menu.feedback"), self)
+        feedback_action.triggered.connect(self._on_open_feedback)
+        help_menu.addAction(feedback_action)
+
     def _on_theme_chosen(self, theme: str):
         self.settings.setValue("theme", theme)
+        self.settings.sync()  # 다음 실행에서 확실히 읽히도록 즉시 디스크에 flush
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, theme)
@@ -939,11 +949,20 @@ class MainWindow(QMainWindow):
         if lang == _CURRENT_LANG:
             return
         self.settings.setValue("language", lang)
+        self.settings.sync()
         QMessageBox.information(
             self,
             tr("language.restart_title"),
             tr("language.restart_body"),
         )
+
+    def closeEvent(self, event):
+        # 종료 직전에 한 번 더 flush — 일부 OS/빌드 환경에서 안전망
+        try:
+            self.settings.sync()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     # ---- 셀렉터 ----
 
@@ -1024,27 +1043,68 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         return _wrap_in_scroll(self._translations_container)
 
-    def _build_side_column(self) -> QScrollArea:
+    def _build_side_column(self) -> QWidget:
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(4)
+
+        # 절 점프 네비게이션 — 스크롤 영역 위에 고정. 절을 받을 때마다 _rebuild_side 가
+        # 버튼을 다시 채운다.
+        self._nav_bar = QWidget()
+        self._nav_layout = QHBoxLayout(self._nav_bar)
+        self._nav_layout.setContentsMargins(4, 4, 4, 4)
+        self._nav_layout.setSpacing(4)
+        self._nav_layout.addStretch(1)
+        wrapper_layout.addWidget(self._nav_bar)
+
         self._side_container = QWidget()
         self._side_layout = QVBoxLayout(self._side_container)
         self._side_layout.setContentsMargins(0, 0, 0, 0)
         self._side_layout.setSpacing(0)
         self._side_layout.addStretch(1)
         self.verse_blocks: dict[int, VerseBlock] = {}
-        return _wrap_in_scroll(self._side_container)
+
+        self._side_scroll_inner = _wrap_in_scroll(self._side_container)
+        wrapper_layout.addWidget(self._side_scroll_inner, 1)
+        return wrapper
 
     def _rebuild_side(self, ref: Reference):
+        # 기존 절 블록 제거
         for block in self.verse_blocks.values():
             block.setParent(None)
             block.deleteLater()
         self.verse_blocks.clear()
+
+        # 네비 버튼 제거 (마지막 stretch 는 유지)
+        while self._nav_layout.count() > 1:
+            item = self._nav_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
         stretch_idx = self._side_layout.count() - 1
+        nav_insert = self._nav_layout.count() - 1  # stretch 앞 자리
         for v in ref.verse_numbers():
             block = VerseBlock(ref, v, self.storage)
             block.set_loading()
             self.verse_blocks[v] = block
             self._side_layout.insertWidget(stretch_idx, block)
             stretch_idx += 1
+
+            btn = QPushButton(str(v))
+            btn.setFixedHeight(24)
+            btn.setStyleSheet("padding: 0 8px;")
+            btn.setToolTip(f"{ref.book_ko} {ref.chapter}:{v}")
+            btn.clicked.connect(lambda _checked=False, num=v: self._scroll_to_verse(num))
+            self._nav_layout.insertWidget(nav_insert, btn)
+            nav_insert += 1
+
+    def _scroll_to_verse(self, verse: int):
+        block = self.verse_blocks.get(verse)
+        if block is None:
+            return
+        self._side_scroll_inner.ensureWidgetVisible(block, 0, 8)
 
     # ---- 선택 처리 ----
 
@@ -1200,6 +1260,11 @@ class MainWindow(QMainWindow):
             if self.translation_checks[code].isChecked()
         ]
 
+    # ---- 도움말 ----
+
+    def _on_open_feedback(self):
+        QDesktopServices.openUrl(QUrl("https://github.com/yeonju7kim/CrossBible/issues"))
+
     # ---- 캐시 정보 ----
 
     def _on_open_cache_info(self):
@@ -1300,10 +1365,18 @@ class MainWindow(QMainWindow):
         self._dl_worker.finished.connect(self._dl_thread.quit)
         self._dl_thread.finished.connect(self._dl_worker.deleteLater)
         self._dl_thread.finished.connect(self._dl_thread.deleteLater)
-        self._dl_dialog.canceled.connect(self._dl_worker.cancel)
+        self._dl_dialog.canceled.connect(self._on_dl_cancel_clicked)
 
         self._dl_thread.start()
         self._dl_dialog.show()
+
+    def _on_dl_cancel_clicked(self):
+        # 사용자가 취소 누르면: 워커에 취소 신호 보내고, 다이얼로그는 곧바로 숨김.
+        # 워커는 다음 0.1초 안에 throttle 루프에서 빠져나와 마무리한다.
+        if self._dl_worker is not None:
+            self._dl_worker.cancel()
+        if self._dl_dialog is not None:
+            self._dl_dialog.hide()
 
     def _on_dl_progress(self, done: int, total: int, label: str):
         if hasattr(self, "_dl_dialog") and self._dl_dialog is not None:

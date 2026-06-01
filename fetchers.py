@@ -565,8 +565,10 @@ class CrossBibleFetcher:
                         if progress_cb:
                             progress_cb(done, total, f"{label} · {book_ko} {chap}장 (캐시됨)")
                         continue
+                    # cancel 을 빠르게 인지하도록 throttle 을 0.1초 단위로 쪼개 대기
+                    if not self._throttle_interruptible(cancel_cb):
+                        return done, total, failures
                     try:
-                        self._throttle()
                         verses = self.fetch_chapter(translation, book_en, chap)
                         if verses:
                             self.storage.put_verses(translation, book_en, chap, verses)
@@ -579,6 +581,17 @@ class CrossBibleFetcher:
                         progress_cb(done, total, f"{label} · {book_ko} {chap}장")
 
         return done, total, failures
+
+    def _throttle_interruptible(self, cancel_cb=None) -> bool:
+        """0.1초 단위로 sleep 하면서 cancel_cb 를 체크. 취소되면 False 반환."""
+        target = self._last_call + self.POLITE_DELAY_SEC
+        while time.time() < target:
+            if cancel_cb and cancel_cb():
+                self._last_call = time.time()
+                return False
+            time.sleep(min(0.1, max(0.0, target - time.time())))
+        self._last_call = time.time()
+        return True
 
     # ---- 본문 ----
 
