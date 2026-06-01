@@ -29,9 +29,29 @@ from PyQt6.QtWidgets import (
 )
 
 from bible_books import book_names_ko, lookup_by_ko
-from fetchers import CrossBibleFetcher
+from fetchers import BIBLEHUB_BOOK_SLUGS, CrossBibleFetcher
 from reference import Reference
 from storage import Storage
+
+
+def _biblehub_links_html(book_en: str, chapter: int, verse: int) -> str:
+    """절 헤더 옆에 표시할 BibleHub 링크 한 줄 (HTML)."""
+    slug = BIBLEHUB_BOOK_SLUGS.get(book_en)
+    if not slug:
+        return ""
+    base = "https://biblehub.com"
+    cv = f"{chapter}-{verse}"
+    parts = [
+        f'<a href="{base}/{slug}/{cv}.htm">본문 비교</a>',
+        f'<a href="{base}/interlinear/{slug}/{cv}.htm">원어</a>',
+        f'<a href="{base}/commentaries/{slug}/{cv}.htm">주석</a>',
+        f'<a href="{base}/lexicon/{slug}/{cv}.htm">렉시콘</a>',
+    ]
+    return (
+        "<span style='font-size:10pt; color:#555'>BibleHub: "
+        + " · ".join(parts)
+        + "</span>"
+    )
 
 
 # ---------- 백그라운드 작업 ----------
@@ -195,7 +215,18 @@ class VerseBlock(QWidget):
         v.setContentsMargins(8, 12, 8, 12)
         v.setSpacing(8)
 
-        v.addWidget(_section_label(f"{ref.book_ko} {ref.chapter}:{verse}", level=1))
+        header_row = QHBoxLayout()
+        header_row.setSpacing(12)
+        header_row.addWidget(_section_label(f"{ref.book_ko} {ref.chapter}:{verse}", level=1))
+        links = QLabel(_biblehub_links_html(ref.book_en, ref.chapter, verse))
+        links.setTextFormat(Qt.TextFormat.RichText)
+        links.setTextInteractionFlags(
+            Qt.TextInteractionFlag.LinksAccessibleByMouse
+            | Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        links.setOpenExternalLinks(True)
+        header_row.addWidget(links, 1)
+        v.addLayout(header_row)
 
         v.addWidget(_section_label("원어 (BibleHub Interlinear)", level=2))
         self.interlinear = InterlinearTable()

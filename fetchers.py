@@ -182,17 +182,21 @@ class BsKoreaFetcher:
 
     @staticmethod
     def _parse(html: str, ref: Reference) -> list[tuple[int, str]]:
-        m = re.search(r'<div id="tdBible1"[^>]*>(.*?)</div>\s*<div', html, re.DOTALL)
-        inner = m.group(1) if m else html
-        soup = BeautifulSoup(inner, "html.parser")
+        # 정규식으로 tdBible1 div 안쪽을 잘라내면 안쪽에 중첩된 각주 <div> 의
+        # 첫 </div> 에서 잘려 17절 이후가 사라지는 사고가 난다 (예: 고전 1:17).
+        # BeautifulSoup 으로 #tdBible1 컨테이너를 직접 잡아 안전하게 파싱.
+        soup = BeautifulSoup(html, "html.parser")
+        container = soup.select_one("#tdBible1")
+        if container is None:
+            raise RuntimeError(f"대한성서공회 본문 컨테이너(#tdBible1) 없음 ({ref.header_ko})")
 
-        for tag in soup.select(
+        for tag in container.select(
             "div.D2, a.comment, [id^='voice'], .chapNum, .smallTitle"
         ):
             tag.decompose()
 
         verses: dict[int, str] = {}
-        for outer in soup.find_all("span", recursive=True):
+        for outer in container.find_all("span", recursive=True):
             num_tag = outer.find("span", class_="number", recursive=False)
             if num_tag is None:
                 continue
