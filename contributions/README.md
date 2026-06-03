@@ -3,7 +3,7 @@
 **1. 프로젝트 가져오기 (딱 한 번만 하면 돼)**
 터미널에서 아래 명령어를 입력해서 내 프로젝트를 네 컴퓨터로 가져와.
 ```bash
-git clone [https://github.com/yeonju7kim/CrossBible.git](https://github.com/yeonju7kim/CrossBible.git)
+git clone https://github.com/yeonju7kim/CrossBible.git
 cd CrossBible
 ```
 
