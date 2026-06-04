@@ -94,7 +94,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.none_body": "조회할 구절을 입력하세요.",
         "parse.problem_title": "구절 입력 확인",
         "parse.problem_unparsed": "해석하지 못한 구절: {tokens}",
-        "parse.problem_too_big": "한 번에 20절을 넘어 제외함: {tokens}",
         "passage.remove_tooltip": "이 구절 제거",
         "passage.split_tooltip": "이 구절을 위/아래 둘로 나누기",
         "block.move_left": "왼쪽 패널로 옮기기",
@@ -150,8 +149,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "biblehub.interlinear": "원어",
         "biblehub.commentary": "주석",
         "biblehub.lexicon": "렉시콘",
-        "lookup.range_too_big_title": "범위 큼",
-        "lookup.range_too_big_body": "한 번에 20절 이하로 조회해 주세요.",
         "menu.settings": "설정",
         "menu.new_window": "새 창 (Ctrl+N)",
         "menu.tools": "도구",
@@ -171,7 +168,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "결과 없음",
         "search.too_many": "{n}건 (처음 {limit}건만 표시)",
         "search.empty_cache": "캐시가 비어 있습니다. 도구 → 성경 다운로드… 로 본문을 먼저 받으세요.",
-        "search.jump_hint": "두 번 클릭하면 그 절로 이동합니다.",
+        "search.jump_hint": "더블클릭하면 왼쪽 패널에 추가됩니다.",
         "menu.help": "도움말",
         "menu.feedback": "건의사항 · 이슈 보내기…",
         "menu.about": "버전 정보…",
@@ -286,7 +283,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.none_body": "Enter a reference to look up.",
         "parse.problem_title": "Check your references",
         "parse.problem_unparsed": "Could not parse: {tokens}",
-        "parse.problem_too_big": "Skipped (over 20 verses at once): {tokens}",
         "passage.remove_tooltip": "Remove this passage",
         "passage.split_tooltip": "Split this passage into top/bottom",
         "block.move_left": "Move to the left panel",
@@ -342,8 +338,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "biblehub.interlinear": "interlinear",
         "biblehub.commentary": "commentary",
         "biblehub.lexicon": "lexicon",
-        "lookup.range_too_big_title": "Range too big",
-        "lookup.range_too_big_body": "Please look up at most 20 verses at a time.",
         "menu.settings": "Settings",
         "menu.new_window": "New window (Ctrl+N)",
         "menu.tools": "Tools",
@@ -363,7 +357,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "No results",
         "search.too_many": "{n} matches (showing first {limit})",
         "search.empty_cache": "Cache is empty. Run Tools → Download Bible first.",
-        "search.jump_hint": "Double-click a row to jump to that verse.",
+        "search.jump_hint": "Double-click a row to add it to the left panel.",
         "menu.help": "Help",
         "menu.feedback": "Send feedback / open an issue…",
         "menu.about": "About…",
@@ -2112,29 +2106,19 @@ class MainWindow(QMainWindow):
         ve = max(self.verse_end.value(), vs)
         return Reference(en, ko_canonical, self.chap_box.value(), vs, ve)
 
-    def _range_ok(self, ref: Reference) -> bool:
-        if not ref.whole_chapter and ref.verse_end - ref.verse_start + 1 > 20:
-            QMessageBox.warning(
-                self,
-                tr("lookup.range_too_big_title"),
-                tr("lookup.range_too_big_body"),
-            )
-            return False
-        return True
-
     def _copy_panels(self) -> list[Panel]:
         return [Panel(list(p.blocks), p.interleave) for p in self._panels]
 
     def _on_lookup(self):
         ref = self._current_ref()
-        if ref is None or not self._range_ok(ref):
+        if ref is None:
             return
         self._apply_panels([Panel([ref])])  # 교체: 한 패널 한 구절
 
     def _on_add(self):
         # ＋추가: 맨 왼쪽 패널에 쌓는다 (패널이 없으면 하나 만든다).
         ref = self._current_ref()
-        if ref is None or not self._range_ok(ref):
+        if ref is None:
             return
         panels = self._copy_panels()
         if panels:
@@ -2217,6 +2201,17 @@ class MainWindow(QMainWindow):
             return
         a = Reference(ref.book_en, ref.book_ko, ref.chapter, lo, k)
         b = Reference(ref.book_en, ref.book_ko, ref.chapter, k + 1, hi)
+
+        # 반쪽 두 구절의 본문은 부모가 이미 받은 데이터를 잘라 채운다 → 재조회 없이 즉시.
+        for (rk, t), pdata in list(self._verse_data.items()):
+            if rk == ref:
+                self._verse_data[(a, t)] = [(n, x) for n, x in pdata if lo <= n <= k]
+                self._verse_data[(b, t)] = [(n, x) for n, x in pdata if k + 1 <= n <= hi]
+        for (rk, t), perr in list(self._verse_errors.items()):
+            if rk == ref:
+                self._verse_errors[(a, t)] = perr
+                self._verse_errors[(b, t)] = perr
+
         panels = self._copy_panels()
         panels[panel_idx].blocks[block_idx:block_idx + 1] = [a, b]
         self._apply_panels(panels)
@@ -2260,22 +2255,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("parse.none_title"), tr("parse.none_body"))
             return None
         refs, errors = parse_references(text)
-        valid: list[Reference] = []
-        too_big: list[str] = []
-        for r in refs:
-            if not r.whole_chapter and r.verse_end - r.verse_start + 1 > 20:
-                too_big.append(r.header_en)
-            else:
-                valid.append(r)
-        # 문제를 모아서 모달 하나로만 안내 (여러 팝업이 연달아 뜨지 않게)
-        problems: list[str] = []
         if errors:
-            problems.append(tr("parse.problem_unparsed", tokens=", ".join(errors)))
-        if too_big:
-            problems.append(tr("parse.problem_too_big", tokens=", ".join(too_big)))
-        if problems:
-            QMessageBox.warning(self, tr("parse.problem_title"), "\n\n".join(problems))
-        return valid
+            QMessageBox.warning(
+                self, tr("parse.problem_title"),
+                tr("parse.problem_unparsed", tokens=", ".join(errors)),
+            )
+        return refs
 
     def _add_refs_to_first_panel(self, refs: list[Reference]):
         panels = self._copy_panels()
