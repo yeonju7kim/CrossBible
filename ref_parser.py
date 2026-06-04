@@ -26,7 +26,12 @@ from reference import Reference
 
 # 토큰: 맨 끝의 "장:절[-절2]" 또는 "장" 을 기준으로 앞부분을 책 이름으로 본다.
 # 장:절 구분자는 콜론(:) 과 점(.) 모두 허용 ("Ecc 1:3" == "Ecc 1.3").
-_RANGE_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)\s*[.:]\s*(?P<v1>\d+)(?:\s*-\s*(?P<v2>\d+))?$")
+# 범위 끝에 장을 다시 써도 됨: "4:6-4:22" == "4:6-22" (같은 장). 끝 장이 시작 장과
+# 다르면(교차 장, 예 "4:6-5:3") 단일 장 Reference 로 표현 못 해 미지원 처리.
+_RANGE_RE = re.compile(
+    r"^(?P<book>.*?)\s*(?P<chap>\d+)\s*[.:]\s*(?P<v1>\d+)"
+    r"(?:\s*-\s*(?:(?P<chap2>\d+)\s*[.:]\s*)?(?P<v2>\d+))?$"
+)
 _CHAPTER_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)$")
 
 
@@ -129,6 +134,11 @@ def parse_references(text: str) -> tuple[list[Reference], list[str]]:
         if whole:
             ref = _make_reference(current_book[0], current_book[1], chap, None, None)
         else:
+            # 범위 끝에 장이 다시 적혔고(예: 4:6-4:22) 시작 장과 다르면 교차 장 → 미지원.
+            chap2 = m.groupdict().get("chap2")
+            if chap2 is not None and int(chap2) != chap:
+                errors.append(tok)
+                continue
             v2 = m.group("v2")
             ref = _make_reference(
                 current_book[0], current_book[1], chap,
