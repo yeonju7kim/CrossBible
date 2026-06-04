@@ -2285,7 +2285,7 @@ class MainWindow(QMainWindow):
         refs = self._parse_multi()
         if not refs:
             return
-        self._apply_panels([Panel([r]) for r in refs])  # 교체: 각 구절을 패널 하나씩
+        self._apply_panels([Panel(list(refs))])  # 교체: 한 패널에 모두 쌓기
 
     def _on_multi_add(self):
         refs = self._parse_multi()
