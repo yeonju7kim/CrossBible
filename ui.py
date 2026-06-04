@@ -69,7 +69,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.ready": "준비됨",
         "status.done": "완료",
         "status.looking_up": "{ref_ko} ({ref_en}) 조회 중…",
-        "status.extras_progress": "원어/주석 {done}/{total} 처리 중…",
         "status.min_one_translation": "번역본을 최소 하나는 켜두세요.",
         "selector.book": "책",
         "selector.chapter": "장",
@@ -91,8 +90,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.lookup": "조회",
         "multi.add": "＋ 추가",
         "multi.tooltip": "쉼표로 구분. 책 생략 시 앞 구절의 책을 이어 씁니다. 예) Acts 12:12, 12:25, 13:5",
-        "parse.error_title": "해석하지 못한 구절",
-        "parse.error_body": "다음 구절은 해석하지 못했습니다:\n{tokens}",
         "parse.none_title": "구절 없음",
         "parse.none_body": "조회할 구절을 입력하세요.",
         "parse.problem_title": "구절 입력 확인",
@@ -135,8 +132,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.show_translations": "표시할 번역:",
         "filter.interleave": "번갈아보기",
         "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
-        "verse.load_extras": "원어·주석 불러오기",
-        "verse.collapse": "접기",
         "verse.interlinear_section": "원어 (BibleHub Interlinear)",
         "verse.commentary_section": "주석 (BibleHub Commentaries)",
         "verse.note_section": "메모",
@@ -266,7 +261,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.ready": "Ready",
         "status.done": "Done",
         "status.looking_up": "Looking up {ref_ko} ({ref_en})…",
-        "status.extras_progress": "Original / commentary {done}/{total}…",
         "status.min_one_translation": "Keep at least one translation enabled.",
         "selector.book": "Book",
         "selector.chapter": "Chap",
@@ -288,8 +282,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.lookup": "Look up",
         "multi.add": "＋ Add",
         "multi.tooltip": "Comma-separated. Omit the book to carry over the previous one. e.g. Acts 12:12, 12:25, 13:5",
-        "parse.error_title": "Could not parse",
-        "parse.error_body": "Could not parse these references:\n{tokens}",
         "parse.none_title": "No reference",
         "parse.none_body": "Enter a reference to look up.",
         "parse.problem_title": "Check your references",
@@ -332,8 +324,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.show_translations": "Show translations:",
         "filter.interleave": "Interleave",
         "filter.interleave_tooltip": "Group translations per verse.",
-        "verse.load_extras": "Load original / commentary",
-        "verse.collapse": "Collapse",
         "verse.interlinear_section": "Original (BibleHub Interlinear)",
         "verse.commentary_section": "Commentary (BibleHub Commentaries)",
         "verse.note_section": "Notes",
@@ -505,24 +495,6 @@ def _ref_from_dict(d: dict) -> Reference:
         d["book_en"], d["book_ko"], int(d["chapter"]),
         int(d["vs"]), int(d["ve"]), bool(d.get("whole", False)),
     )
-
-
-def serialize_refs(refs: list[Reference]) -> str:
-    return json.dumps([_ref_to_dict(r) for r in refs], ensure_ascii=False)
-
-
-def deserialize_refs(payload: str) -> list[Reference]:
-    try:
-        data = json.loads(payload)
-    except Exception:
-        return []
-    out: list[Reference] = []
-    for d in data:
-        try:
-            out.append(_ref_from_dict(d))
-        except Exception:
-            continue
-    return out
 
 
 def serialize_panels(panels: list[Panel]) -> str:
@@ -1031,8 +1003,8 @@ class SearchDialog(QDialog):
 class LibraryDialog(QDialog):
     """저장된 구절 모음 불러오기/추가/삭제."""
 
-    load_replace = pyqtSignal(list)  # list[Reference]
-    load_add = pyqtSignal(list)
+    load_replace = pyqtSignal(list)  # list[Panel]
+    load_add = pyqtSignal(list)      # list[Panel]
 
     def __init__(self, storage: Storage, parent=None):
         super().__init__(parent)
@@ -1754,7 +1726,7 @@ class MainWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
 
-    def _apply_panels(self, panels: list[list[Reference]], force: bool = False):
+    def _apply_panels(self, panels: list[Panel], force: bool = False):
         """패널 구조를 정규화해 적용하고, 필요한 것만 조회한다.
 
         본문/오류/절목록은 Reference 로 키잉되어 있어, 순서를 바꾸거나 블록을 옮겨도

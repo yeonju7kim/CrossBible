@@ -80,36 +80,6 @@ BIBLEHUB_BOOK_SLUGS = {
     "Jude": "jude", "Revelation": "revelation",
 }
 
-# bible.com (YouVersion) 책 약어 — 우리말성경(WLB) 등 다국어 공통.
-YOUVERSION_BOOK_CODES = {
-    "Genesis": "GEN", "Exodus": "EXO", "Leviticus": "LEV", "Numbers": "NUM",
-    "Deuteronomy": "DEU", "Joshua": "JOS", "Judges": "JDG", "Ruth": "RUT",
-    "1 Samuel": "1SA", "2 Samuel": "2SA", "1 Kings": "1KI", "2 Kings": "2KI",
-    "1 Chronicles": "1CH", "2 Chronicles": "2CH", "Ezra": "EZR",
-    "Nehemiah": "NEH", "Esther": "EST", "Job": "JOB", "Psalms": "PSA",
-    "Proverbs": "PRO", "Ecclesiastes": "ECC", "Song of Songs": "SNG",
-    "Isaiah": "ISA", "Jeremiah": "JER", "Lamentations": "LAM",
-    "Ezekiel": "EZK", "Daniel": "DAN", "Hosea": "HOS", "Joel": "JOL",
-    "Amos": "AMO", "Obadiah": "OBA", "Jonah": "JON", "Micah": "MIC",
-    "Nahum": "NAM", "Habakkuk": "HAB", "Zephaniah": "ZEP", "Haggai": "HAG",
-    "Zechariah": "ZEC", "Malachi": "MAL",
-    "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
-    "Acts": "ACT", "Romans": "ROM", "1 Corinthians": "1CO",
-    "2 Corinthians": "2CO", "Galatians": "GAL", "Ephesians": "EPH",
-    "Philippians": "PHP", "Colossians": "COL",
-    "1 Thessalonians": "1TH", "2 Thessalonians": "2TH",
-    "1 Timothy": "1TI", "2 Timothy": "2TI", "Titus": "TIT",
-    "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
-    "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN",
-    "3 John": "3JN", "Jude": "JUD", "Revelation": "REV",
-}
-
-# YouVersion 번역본 ID. WLB(우리말성경) = 2308.
-YOUVERSION_VERSIONS = {
-    "WLB": 2308,
-}
-
-
 USER_AGENT = "Mozilla/5.0 (CrossBible study app)"
 HEADERS = {"User-Agent": USER_AGENT}
 
@@ -292,63 +262,6 @@ class BsKoreaFetcher:
             text = re.sub(r"\s+", " ", text).strip()
             if text:
                 verses[n] = text
-        return sorted(verses.items())
-
-
-# ---------- YouVersion (bible.com): 우리말성경 ----------
-
-class YouVersionFetcher:
-    """bible.com 의 정적 HTML 페이지에서 본문 추출.
-
-    URL 예: https://www.bible.com/bible/2308/GEN.1.WLB
-    페이지 안에 ``"reference":{...}, "content":"…"`` 형태의 JSON 조각이
-    포함되어 있어 그 안에서 절 단위 텍스트를 뽑는다.
-    """
-
-    BASE = "https://www.bible.com/bible"
-
-    def fetch(self, ref: Reference, version: str = "WLB") -> list[tuple[int, str]]:
-        version_id = YOUVERSION_VERSIONS.get(version)
-        if version_id is None:
-            raise RuntimeError(f"YouVersion version 미지원: {version}")
-        slug = YOUVERSION_BOOK_CODES.get(ref.book_en)
-        if slug is None:
-            raise RuntimeError(f"YouVersion 책 코드 없음: {ref.book_en}")
-        url = f"{self.BASE}/{version_id}/{slug}.{ref.chapter}.{version}"
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        r.raise_for_status()
-        return self._parse(r.text, ref)
-
-    @staticmethod
-    def _parse(html: str, ref: Reference) -> list[tuple[int, str]]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        verses: dict[int, str] = {}
-        # bible.com 본문은 <span class="verse vN">… 형태로 절 단위 표시.
-        for span in soup.select("span.verse"):
-            classes = span.get("class", [])
-            num = None
-            for c in classes:
-                m = re.match(r"^v(\d+)$", c)
-                if m:
-                    num = int(m.group(1))
-                    break
-            if num is None:
-                continue
-            if not (ref.verse_start <= num <= ref.verse_end):
-                continue
-            for label in span.select("span.label"):
-                label.decompose()
-            for note in span.select("span.note, span.footnote, span.heading"):
-                note.decompose()
-            text = span.get_text(separator="", strip=False)
-            text = re.sub(r"\s+", " ", text).strip()
-            if text:
-                verses[num] = (verses.get(num, "") + " " + text).strip()
-
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"YouVersion 누락 절 {missing} ({ref.header_ko})")
         return sorted(verses.items())
 
 
@@ -564,7 +477,6 @@ class CrossBibleFetcher:
         self.storage = storage
         self.bg = BibleGatewayFetcher()
         self.bsk = BsKoreaFetcher()
-        self.yv = YouVersionFetcher()  # legacy, currently unused
         self.nocr = NocrFetcher()
         self.interlinear = BibleHubInterlinearFetcher()
         self.commentary = BibleHubCommentaryFetcher()
