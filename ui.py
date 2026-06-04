@@ -107,6 +107,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.add": "＋ 추가",
         "multi.to_text": "현재→텍스트",
         "multi.to_text_tooltip": "지금 화면의 패널 구성을 텍스트로 뽑아 클립보드에 복사합니다 (|| 구분).",
+        "multi.copied_title": "복사됨",
         "multi.copied": "클립보드에 복사되었습니다.",
         "multi.tooltip": (
             "여러 구절을 한 번에 입력. 규칙:\n"
@@ -321,6 +322,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.add": "＋ Add",
         "multi.to_text": "→ Text",
         "multi.to_text_tooltip": "Copy the current panel layout to the clipboard as text (|| separated).",
+        "multi.copied_title": "Copied",
         "multi.copied": "Copied to clipboard.",
         "multi.tooltip": (
             "Enter multiple passages at once. Rules:\n"
@@ -2581,7 +2583,7 @@ class MainWindow(QMainWindow):
             return
         self.multi_edit.setText(text)
         QApplication.clipboard().setText(text)
-        self.statusBar().showMessage(tr("multi.copied"), 3000)
+        QMessageBox.information(self, tr("multi.copied_title"), tr("multi.copied"))
 
     def _on_jump_panel(self):
         # 패널 번호로 가로 스크롤 이동 (#2)
