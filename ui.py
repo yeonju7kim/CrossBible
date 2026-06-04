@@ -1094,18 +1094,21 @@ class LibraryDialog(QDialog):
 
 
 class VersesWorker(QObject):
-    """여러 passage × 번역본의 '본문'만 가져온다. 원어/주석은 지연 로딩이라 여기서 안 받음."""
+    """필요한 (구절, 번역본) 쌍의 '본문'만 가져온다. 원어/주석은 지연 로딩.
 
-    verses_ready = pyqtSignal(int, str, list)   # passage_index, translation, verses
-    error = pyqtSignal(int, str, str)           # passage_index, translation, message
+    데이터를 위치(index)가 아니라 Reference 로 식별하므로, 화면에서 순서를 바꿔도
+    이미 받은 결과는 그대로 재사용된다(재조회 불필요).
+    """
+
+    verses_ready = pyqtSignal(object, str, list)   # ref, translation, verses
+    error = pyqtSignal(object, str, str)           # ref, translation, message
     finished = pyqtSignal()
 
-    def __init__(self, fetcher: CrossBibleFetcher, passages: list[Reference],
-                 translations: list[str], force: bool = False):
+    def __init__(self, fetcher: CrossBibleFetcher,
+                 targets: list[tuple[Reference, str]], force: bool = False):
         super().__init__()
         self.fetcher = fetcher
-        self.passages = passages
-        self.translations = translations
+        self.targets = targets
         self.force = force
         self._cancel = False
 
@@ -1113,16 +1116,15 @@ class VersesWorker(QObject):
         self._cancel = True
 
     def run(self):
-        for pi, ref in enumerate(self.passages):
-            for t in self.translations:
-                if self._cancel:
-                    self.finished.emit()
-                    return
-                try:
-                    verses = self.fetcher.get_verses(t, ref, force=self.force)
-                    self.verses_ready.emit(pi, t, verses)
-                except Exception as e:
-                    self.error.emit(pi, t, str(e))
+        for ref, t in self.targets:
+            if self._cancel:
+                self.finished.emit()
+                return
+            try:
+                verses = self.fetcher.get_verses(t, ref, force=self.force)
+                self.verses_ready.emit(ref, t, verses)
+            except Exception as e:
+                self.error.emit(ref, t, str(e))
         self.finished.emit()
 
 
@@ -1397,12 +1399,13 @@ class MainWindow(QMainWindow):
         self._dl_worker: DownloadWorker | None = None
 
         # 패널(세로 구절 묶음)들. 좌측 가로 배치의 원본. self._passages 는 이를
-        # 읽기 순서(좌→우, 위→아래)로 펼친 평면 리스트로, 본문 조회/우측 패널의 키.
+        # 읽기 순서(좌→우, 위→아래)로 펼친 평면 리스트(우측 패널 순서용).
+        # 본문/오류/절목록은 위치가 아니라 Reference 로 키잉 → 순서를 바꿔도 재사용.
         self._panels: list[list[Reference]] = []
         self._passages: list[Reference] = []
-        self._verse_data: dict[tuple[int, str], list] = {}
-        self._verse_errors: dict[tuple[int, str], str] = {}
-        self._passage_verses: dict[int, list[int]] = {}
+        self._verse_data: dict[tuple[Reference, str], list] = {}
+        self._verse_errors: dict[tuple[Reference, str], str] = {}
+        self._passage_verses: dict[Reference, list[int]] = {}
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1676,7 +1679,7 @@ class MainWindow(QMainWindow):
         self._side_layout.setContentsMargins(0, 0, 0, 0)
         self._side_layout.setSpacing(0)
         self._side_layout.addStretch(1)
-        self.verse_blocks: dict[tuple[int, int], VerseBlock] = {}
+        self.verse_blocks: dict[tuple[Reference, int], VerseBlock] = {}
 
         self._side_scroll_inner = _wrap_in_scroll(self._side_container)
         wrapper_layout.addWidget(self._side_scroll_inner, 1)
@@ -1696,27 +1699,14 @@ class MainWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
 
-    def _clear_side(self):
-        while self._side_layout.count() > 1:
-            item = self._side_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-        self.verse_blocks.clear()
-        while self._nav_layout.count() > 1:
-            item = self._nav_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-
     def _apply_panels(self, panels: list[list[Reference]], force: bool = False):
-        """패널 구조를 정규화해 적용하고 화면을 다시 만든다.
+        """패널 구조를 정규화해 적용하고, 필요한 것만 조회한다.
 
-        - 전역 중복 제거(같은 구절은 첫 등장만) — ＋추가 두 번 눌러도 한 번.
-        - 빈 패널은 유지 (＋새 패널 로 만든 뒤 ◀ ▶ 로 옮겨 담는 용도).
-        - 패널은 최대 MAX_PANELS 개.
+        본문/오류/절목록은 Reference 로 키잉되어 있어, 순서를 바꾸거나 블록을 옮겨도
+        이미 받은 데이터는 그대로 재사용한다 → 재정렬/삭제는 재조회 없이 즉시 반영.
+        새로 생긴 구절(또는 force) 만 백그라운드로 조회한다.
+
+        - 전역 중복 제거(같은 구절은 첫 등장만) · 빈 패널 유지 · 패널 최대 MAX_PANELS 개.
         """
         seen: set[Reference] = set()
         norm: list[list[Reference]] = []
@@ -1732,12 +1722,39 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("passage.max_reached", n=self.MAX_PANELS), 4000)
         self._panels = norm
         flat = [ref for p in norm for ref in p]
-        self._start_view(flat, force=force)
+        self._passages = flat
 
-    def _start_view(self, passages: list[Reference], force: bool = False):
-        # 진행 중 본문 워커는 기다리지 않고 분리한다. blockSignals 만으로는 '이미 큐에
-        # 쌓인' 신호가 그대로 전달돼 옛 결과가 새 화면을 오염시킨다(중복 조회 시 본문이
-        # 뒤섞이는 원인). 그래서 연결 자체를 끊어 stale 결과를 확실히 버린다.
+        # 화면에서 사라진 구절의 데이터는 정리 (메모리/혼선 방지)
+        present = set(flat)
+        self._verse_data = {k: v for k, v in self._verse_data.items() if k[0] in present}
+        self._verse_errors = {k: v for k, v in self._verse_errors.items() if k[0] in present}
+        self._passage_verses = {r: v for r, v in self._passage_verses.items() if r in present}
+        # 범위 구절의 절 번호는 즉시 안다 (우측 블록 바로 빌드). 장 전체는 본문 도착 후.
+        for ref in flat:
+            if not ref.whole_chapter and ref not in self._passage_verses:
+                self._passage_verses[ref] = ref.verse_numbers()
+
+        # 화면을 재조회 없이 다시 그린다 — 우측 절 블록은 재사용(펼침/메모 상태 유지).
+        self._rebuild_side()
+        self._render_left()
+
+        if flat:
+            head = flat[0].header_ko + (f" 외 {len(flat) - 1}" if len(flat) > 1 else "")
+            self.setWindowTitle(tr("app.title_with_ref", ref=head))
+        else:
+            self.setWindowTitle(tr("app.title"))
+
+        # 조회가 필요한 (구절, 번역본) 만 추린다 (force 면 전부 다시).
+        enabled = self._enabled_translations()
+        targets = [
+            (ref, t) for ref in flat for t in enabled
+            if force or (ref, t) not in self._verse_data
+        ]
+        self._fetch(targets, force)
+
+    def _fetch(self, targets: list[tuple[Reference, str]], force: bool = False):
+        # 진행 중 워커는 기다리지 않고 분리한다. blockSignals 만으론 '이미 큐에 쌓인'
+        # 신호가 그대로 전달돼 옛 결과가 새 화면을 오염시키므로 연결 자체를 끊는다.
         if self._thread is not None:
             try:
                 if self._worker is not None:
@@ -1750,38 +1767,19 @@ class MainWindow(QMainWindow):
             self._worker = None
             self._thread = None
 
-        # passages 는 패널을 읽기 순서로 펼친 평면 리스트 (정규화는 _apply_panels 가 함).
-        self._passages = list(passages)
-        self._verse_data = {}
-        self._verse_errors = {}
-        self._passage_verses = {}
-
-        self._clear_left()
-        self._clear_side()
-
-        if not self._passages:
-            self.setWindowTitle(tr("app.title"))
+        if not targets:
+            if self._passages:
+                self.statusBar().showMessage(tr("status.done"), 2000)
             return
 
-        head = self._passages[0].header_ko
-        if len(self._passages) > 1:
-            head += f" 외 {len(self._passages) - 1}"
-        self.setWindowTitle(tr("app.title_with_ref", ref=head))
-        self.statusBar().showMessage(
-            tr("status.looking_up", ref_ko=head, ref_en=self._passages[0].header_en)
-        )
+        if self._passages:
+            head = self._passages[0].header_ko
+            self.statusBar().showMessage(
+                tr("status.looking_up", ref_ko=head, ref_en=self._passages[0].header_en)
+            )
 
-        # 범위 passage 의 절 번호는 미리 알 수 있다. 장 전체는 본문 도착 후 결정.
-        for pi, ref in enumerate(self._passages):
-            if not ref.whole_chapter:
-                self._passage_verses[pi] = ref.verse_numbers()
-
-        self._rebuild_side()
-        self._render_left()
-
-        enabled = self._enabled_translations()
         self._thread = QThread(self)
-        self._worker = VersesWorker(self.fetcher, self._passages, enabled, force=force)
+        self._worker = VersesWorker(self.fetcher, targets, force=force)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.verses_ready.connect(self._on_verses_ready)
@@ -1794,10 +1792,10 @@ class MainWindow(QMainWindow):
 
     # ---- 좌측(본문) 렌더링 ----
 
-    def _passage_verse_set(self, pi: int, enabled: list[str], ref: Reference) -> list[int]:
+    def _passage_verse_set(self, ref: Reference, enabled: list[str]) -> list[int]:
         nums: set[int] = set()
         for t in enabled:
-            data = self._verse_data.get((pi, t))
+            data = self._verse_data.get((ref, t))
             if data:
                 nums.update(n for n, _ in data)
         if not nums and not ref.whole_chapter:
@@ -1811,16 +1809,14 @@ class MainWindow(QMainWindow):
         enabled = self._enabled_translations()
         self._translations_container.setUpdatesEnabled(False)
         try:
-            bi = 0
             for panel_idx, panel in enumerate(self._panels):
                 self._left_layout.addWidget(
-                    self._render_panel(panel_idx, panel, bi, enabled), 1
+                    self._render_panel(panel_idx, panel, enabled), 1
                 )
-                bi += len(panel)
         finally:
             self._translations_container.setUpdatesEnabled(True)
 
-    def _render_panel(self, panel_idx: int, panel: list[Reference], bi_start: int,
+    def _render_panel(self, panel_idx: int, panel: list[Reference],
                       enabled: list[str]) -> QWidget:
         col = QWidget()
         cv = QVBoxLayout(col)
@@ -1844,14 +1840,14 @@ class MainWindow(QMainWindow):
         iv.setContentsMargins(0, 0, 0, 0)
         iv.setSpacing(4)
         for block_idx, ref in enumerate(panel):
-            iv.addWidget(self._render_block(panel_idx, block_idx, bi_start + block_idx, ref, enabled))
+            iv.addWidget(self._render_block(panel_idx, block_idx, ref, enabled))
             if block_idx < len(panel) - 1:
                 iv.addWidget(_hline())
         iv.addStretch(1)
         cv.addWidget(_wrap_in_scroll(inner), 1)
         return col
 
-    def _render_block(self, panel_idx: int, block_idx: int, bi: int,
+    def _render_block(self, panel_idx: int, block_idx: int,
                       ref: Reference, enabled: list[str]) -> QWidget:
         box = QWidget()
         bl = QVBoxLayout(box)
@@ -1876,7 +1872,7 @@ class MainWindow(QMainWindow):
             ("↓", tr("block.move_down"),
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block(p, b, +1), block_idx < n_blocks - 1),
             ("✂", tr("passage.split_tooltip"),
-             lambda _c=False, p=panel_idx, b=block_idx, i=bi: self._split_block(p, b, i), True),
+             lambda _c=False, p=panel_idx, b=block_idx: self._split_block(p, b), True),
             ("✕", tr("passage.remove_tooltip"),
              lambda _c=False, p=panel_idx, b=block_idx: self._remove_block(p, b), True),
         ]
@@ -1893,14 +1889,14 @@ class MainWindow(QMainWindow):
         bl.addLayout(brow)
 
         if self.interleave_check.isChecked():
-            verses = self._passage_verse_set(bi, enabled, ref)
+            verses = self._passage_verse_set(ref, enabled)
             if not verses:
                 bl.addWidget(self._muted(tr("verse.loading")))
             for n in verses:
-                bl.addWidget(self._interleave_widget(bi, n, enabled))
+                bl.addWidget(self._interleave_widget(ref, n, enabled))
         else:
             for t in enabled:
-                bl.addWidget(self._translation_subblock(bi, t))
+                bl.addWidget(self._translation_subblock(ref, t))
         return box
 
     @staticmethod
@@ -1910,7 +1906,7 @@ class MainWindow(QMainWindow):
         lbl.setWordWrap(True)
         return lbl
 
-    def _translation_subblock(self, pi: int, t: str) -> QWidget:
+    def _translation_subblock(self, ref: Reference, t: str) -> QWidget:
         box = QWidget()
         v = QVBoxLayout(box)
         v.setContentsMargins(0, 2, 0, 4)
@@ -1933,13 +1929,13 @@ class MainWindow(QMainWindow):
             bf.setPointSize(bf.pointSize() + 1)
             body.setFont(bf)
 
-        if (pi, t) in self._verse_errors:
+        if (ref, t) in self._verse_errors:
             body.setText(
                 f"<span style='color:#c33'>{tr('verse.fetch_failed')}<br>"
-                f"<small>{self._esc(self._verse_errors[(pi, t)])}</small></span>"
+                f"<small>{self._esc(self._verse_errors[(ref, t)])}</small></span>"
             )
         else:
-            data = self._verse_data.get((pi, t))
+            data = self._verse_data.get((ref, t))
             if data is None:
                 body.setText(f"<span style='color:#888'>{tr('verse.loading')}</span>")
             else:
@@ -1948,7 +1944,7 @@ class MainWindow(QMainWindow):
         v.addWidget(body)
         return box
 
-    def _interleave_widget(self, pi: int, n: int, enabled: list[str]) -> QWidget:
+    def _interleave_widget(self, ref: Reference, n: int, enabled: list[str]) -> QWidget:
         box = QWidget()
         v = QVBoxLayout(box)
         v.setContentsMargins(0, 4, 0, 4)
@@ -1957,7 +1953,7 @@ class MainWindow(QMainWindow):
         for t in enabled:
             label = CrossBibleFetcher.TRANSLATION_LABELS.get(t, t)
             line = QLabel(
-                f"<span style='color:#999'>{label}</span>&nbsp;&nbsp;{self._verse_text(pi, t, n)}"
+                f"<span style='color:#999'>{label}</span>&nbsp;&nbsp;{self._verse_text(ref, t, n)}"
             )
             line.setWordWrap(True)
             line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -1969,10 +1965,10 @@ class MainWindow(QMainWindow):
             v.addWidget(line)
         return box
 
-    def _verse_text(self, pi: int, t: str, n: int) -> str:
-        if (pi, t) in self._verse_errors:
+    def _verse_text(self, ref: Reference, t: str, n: int) -> str:
+        if (ref, t) in self._verse_errors:
             return "<span style='color:#c33'>—</span>"
-        data = self._verse_data.get((pi, t))
+        data = self._verse_data.get((ref, t))
         if data is None:
             return "<span style='color:#888'>…</span>"
         for vn, txt in data:
@@ -1983,19 +1979,39 @@ class MainWindow(QMainWindow):
     # ---- 우측(원어/주석/메모) 빌드 ----
 
     def _rebuild_side(self):
-        """우측 패널을 항상 passage 순서대로 통째로 다시 만든다.
+        """우측 패널을 읽기 순서(왼쪽 패널부터 위→아래)로 재구성한다.
 
-        장 전체는 본문 도착 후에야 절 수를 알 수 있어 시점이 늦는데, 순서를 보장하려면
-        '도착하는 대로 뒤에 붙이기'가 아니라 매번 passage 순서대로 재구성해야 한다.
-        (재정렬·삭제·split 후에도 이 한 메서드로 우측이 맞춰진다.)
+        VerseBlock 은 (구절, 절) 키로 '재사용'한다 — 순서만 바뀌면 위젯을 새로 만들지
+        않고 떼었다 다시 끼우므로 빠르고, 펼침·원어/주석·메모 상태가 유지된다.
         """
-        self._clear_side()
-        for pi, ref in enumerate(self._passages):
-            verses = self._passage_verses.get(pi)
-            if verses:
-                self._append_side_passage(pi, ref, verses)
+        old = self.verse_blocks  # (ref, verse) -> VerseBlock (재사용 후보)
+        # 레이아웃에서 모두 떼어낸다. VerseBlock 은 삭제하지 않고 보관(재사용), 나머지는 삭제.
+        while self._side_layout.count() > 1:
+            w = self._side_layout.takeAt(0).widget()
+            if w is None:
+                continue
+            w.setParent(None)
+            if not isinstance(w, VerseBlock):
+                w.deleteLater()
+        while self._nav_layout.count() > 1:
+            w = self._nav_layout.takeAt(0).widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
 
-    def _append_side_passage(self, pi: int, ref: Reference, verses: list[int]):
+        self.verse_blocks = {}
+        for ref in self._passages:
+            verses = self._passage_verses.get(ref)
+            if verses:
+                self._append_side_passage(ref, verses, old)
+
+        # 더 이상 화면에 없는 옛 블록은 정리
+        for key, blk in old.items():
+            if key not in self.verse_blocks:
+                blk.setParent(None)
+                blk.deleteLater()
+
+    def _append_side_passage(self, ref: Reference, verses: list[int], old: dict):
         insert = self._side_layout.count() - 1
         header = _section_label(f"{ref.header_ko}  ({ref.header_en})", level=1)
         self._side_layout.insertWidget(insert, header)
@@ -2008,8 +2024,11 @@ class MainWindow(QMainWindow):
         nav_insert += 1
 
         for n in verses:
-            block = VerseBlock(ref, n, self.storage, self.fetcher)
-            self.verse_blocks[(pi, n)] = block
+            key = (ref, n)
+            block = old.pop(key, None)  # 있으면 재사용 (상태 유지)
+            if block is None:
+                block = VerseBlock(ref, n, self.storage, self.fetcher)
+            self.verse_blocks[key] = block
             self._side_layout.insertWidget(insert, block)
             insert += 1
 
@@ -2017,12 +2036,12 @@ class MainWindow(QMainWindow):
             btn.setFixedHeight(24)
             btn.setStyleSheet("padding: 0 8px;")
             btn.setToolTip(f"{ref.book_ko} {ref.chapter}:{n}")
-            btn.clicked.connect(lambda _checked=False, p=pi, num=n: self._scroll_to(p, num))
+            btn.clicked.connect(lambda _checked=False, r=ref, num=n: self._scroll_to(r, num))
             self._nav_layout.insertWidget(nav_insert, btn)
             nav_insert += 1
 
-    def _scroll_to(self, pi: int, verse: int):
-        block = self.verse_blocks.get((pi, verse))
+    def _scroll_to(self, ref: Reference, verse: int):
+        block = self.verse_blocks.get((ref, verse))
         if block is None:
             return
         block.expand()
@@ -2134,7 +2153,7 @@ class MainWindow(QMainWindow):
         panels[q].append(ref)
         self._apply_panels(panels)
 
-    def _split_block(self, panel_idx: int, block_idx: int, bi: int):
+    def _split_block(self, panel_idx: int, block_idx: int):
         """블록의 절 범위를 위/아래 둘로 나눠 같은 패널에 쌓는다 ([lo..k], [k+1..hi])."""
         if not (0 <= panel_idx < len(self._panels)):
             return
@@ -2142,7 +2161,7 @@ class MainWindow(QMainWindow):
             return
         ref = self._panels[panel_idx][block_idx]
         if ref.whole_chapter:
-            verses = self._passage_verses.get(bi)
+            verses = self._passage_verses.get(ref)
             if not verses:
                 QMessageBox.information(self, tr("split.title"), tr("split.need_text"))
                 return
@@ -2238,20 +2257,19 @@ class MainWindow(QMainWindow):
             return
         self._add_refs_to_first_panel(refs)  # 맨 왼쪽 패널에 쌓기
 
-    def _on_verses_ready(self, pi: int, translation: str, verses: list):
-        self._verse_data[(pi, translation)] = verses
-        self._verse_errors.pop((pi, translation), None)
-        # 장 전체 passage 는 본문이 도착해야 절 수를 알 수 있다 — 첫 도착 시 우측 블록 빌드.
-        if (pi < len(self._passages) and self._passages[pi].whole_chapter
-                and pi not in self._passage_verses):
+    def _on_verses_ready(self, ref: Reference, translation: str, verses: list):
+        self._verse_data[(ref, translation)] = verses
+        self._verse_errors.pop((ref, translation), None)
+        # 장 전체는 본문이 도착해야 절 수를 안다 — 첫 도착 시 우측 블록을 (재사용하며) 빌드.
+        if ref.whole_chapter and ref not in self._passage_verses:
             nums = [n for n, _ in verses]
             if nums:
-                self._passage_verses[pi] = nums
-                self._rebuild_side()  # 순서 보장 위해 passage 순서대로 재구성
+                self._passage_verses[ref] = nums
+                self._rebuild_side()
         self._render_left()
 
-    def _on_verses_error(self, pi: int, translation: str, message: str):
-        self._verse_errors[(pi, translation)] = message
+    def _on_verses_error(self, ref: Reference, translation: str, message: str):
+        self._verse_errors[(ref, translation)] = message
         self._render_left()
 
     def _on_finished(self):
@@ -2279,9 +2297,9 @@ class MainWindow(QMainWindow):
             cb.blockSignals(False)
             self.statusBar().showMessage(tr("status.min_one_translation"), 3000)
             return
-        # 켠 번역본의 본문이 아직 없으면 다시 조회(캐시라 보통 즉시). 끄면 좌측만 다시 그림.
-        missing = checked and self._passages and any(
-            (bi, code) not in self._verse_data for bi in range(len(self._passages))
+        # 켠 번역본의 본문이 아직 없으면 그 번역만 조회. 끄면 좌측만 다시 그림.
+        missing = checked and any(
+            (ref, code) not in self._verse_data for ref in self._passages
         )
         if missing:
             self._apply_panels(self._panels)
