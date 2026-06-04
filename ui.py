@@ -50,9 +50,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from bible_books import book_names_ko, lookup_by_ko
+from bible_books import book_chapters, book_names_en, book_names_ko
 from fetchers import BIBLEHUB_BOOK_SLUGS, CrossBibleFetcher
-from ref_parser import parse_references
+from ref_parser import parse_references, resolve_book
 from reference import Reference
 from storage import Storage
 
@@ -462,6 +462,16 @@ def tr(key: str, **kwargs) -> str:
     return value
 
 
+# 현재 UI 언어에 맞는 책 이름 / 성구 헤더 (영어면 영문, 아니면 한글).
+
+def _book_name(book_en: str, book_ko: str) -> str:
+    return book_en if _CURRENT_LANG == "en" else book_ko
+
+
+def _ref_header(ref: Reference) -> str:
+    return ref.header_en if _CURRENT_LANG == "en" else ref.header_ko
+
+
 # ---------- 패널 모델 ----------
 
 @dataclass
@@ -784,8 +794,9 @@ class DownloadSelectionDialog(QDialog):
         # 66권 체크 가능 리스트
         self.book_list = QListWidget()
         self._items: list[QListWidgetItem] = []
+        ch_unit = "ch" if _CURRENT_LANG == "en" else "장"
         for en, ko, _, _, chapters in BOOKS:
-            item = QListWidgetItem(f"{ko}  ({chapters}장)")
+            item = QListWidgetItem(f"{_book_name(en, ko)}  ({chapters}{ch_unit})")
             item.setData(Qt.ItemDataRole.UserRole, en)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
@@ -951,7 +962,7 @@ class SearchDialog(QDialog):
 
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            ref_str = f"{en_to_ko.get(r['book_en'], r['book_en'])} {r['chapter']}:{r['verse']}"
+            ref_str = f"{_book_name(r['book_en'], en_to_ko.get(r['book_en'], r['book_en']))} {r['chapter']}:{r['verse']}"
             preview = self._snippet(r["text"], query)
             ref_item = QTableWidgetItem(ref_str)
             ref_item.setData(Qt.ItemDataRole.UserRole, (r["book_en"], r["chapter"], r["verse"]))
@@ -1261,7 +1272,7 @@ class VerseBlock(QWidget):
 
         header_row = QHBoxLayout()
         header_row.setSpacing(12)
-        self.toggle_btn = QPushButton(f"▶  {ref.book_ko} {ref.chapter}:{verse}")
+        self.toggle_btn = QPushButton(f"▶  {_book_name(ref.book_en, ref.book_ko)} {ref.chapter}:{verse}")
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setStyleSheet("text-align:left; font-weight:bold; border:none; padding:2px;")
         self.toggle_btn.toggled.connect(self._on_toggled)
@@ -1290,7 +1301,7 @@ class VerseBlock(QWidget):
 
     def _on_toggled(self, checked: bool):
         self.toggle_btn.setText(
-            f"{'▼' if checked else '▶'}  {self.ref.book_ko} {self.ref.chapter}:{self.verse}"
+            f"{'▼' if checked else '▶'}  {_book_name(self.ref.book_en, self.ref.book_ko)} {self.ref.chapter}:{self.verse}"
         )
         if checked and not self._body_built:
             self._build_body()
@@ -1573,7 +1584,7 @@ class MainWindow(QMainWindow):
 
         row.addWidget(QLabel(tr("selector.book")))
         self.book_box = QComboBox()
-        self.book_box.addItems(book_names_ko())
+        self.book_box.addItems(book_names_en() if _CURRENT_LANG == "en" else book_names_ko())
         self.book_box.setEditable(True)
         self.book_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         completer = self.book_box.completer()
@@ -1778,7 +1789,7 @@ class MainWindow(QMainWindow):
         self._render_left()
 
         if flat:
-            head = flat[0].header_ko + (f" 외 {len(flat) - 1}" if len(flat) > 1 else "")
+            head = _ref_header(flat[0]) + (f" +{len(flat) - 1}" if len(flat) > 1 else "")
             self.setWindowTitle(tr("app.title_with_ref", ref=head))
         else:
             self.setWindowTitle(tr("app.title"))
@@ -1898,8 +1909,9 @@ class MainWindow(QMainWindow):
         bl.setContentsMargins(2, 2, 2, 2)
         bl.setSpacing(2)
 
-        bl.addWidget(_section_label(ref.header_ko, level=2))
-        sub = QLabel(ref.header_en)
+        en_mode = _CURRENT_LANG == "en"
+        bl.addWidget(_section_label(ref.header_en if en_mode else ref.header_ko, level=2))
+        sub = QLabel(ref.header_ko if en_mode else ref.header_en)
         sub.setStyleSheet("color:#888; font-size:9pt;")
         bl.addWidget(sub)
 
@@ -2057,12 +2069,15 @@ class MainWindow(QMainWindow):
 
     def _append_side_passage(self, ref: Reference, verses: list[int], old: dict):
         insert = self._side_layout.count() - 1
-        header = _section_label(f"{ref.header_ko}  ({ref.header_en})", level=1)
+        en_mode = _CURRENT_LANG == "en"
+        primary = ref.header_en if en_mode else ref.header_ko
+        secondary = ref.header_ko if en_mode else ref.header_en
+        header = _section_label(f"{primary}  ({secondary})", level=1)
         self._side_layout.insertWidget(insert, header)
         insert += 1
 
         nav_insert = self._nav_layout.count() - 1
-        nav_label = QLabel(f"{ref.book_ko}{ref.chapter}:")
+        nav_label = QLabel(f"{_book_name(ref.book_en, ref.book_ko)}{ref.chapter}:")
         nav_label.setStyleSheet("color:#888; padding:0 2px;")
         self._nav_layout.insertWidget(nav_insert, nav_label)
         nav_insert += 1
@@ -2079,7 +2094,7 @@ class MainWindow(QMainWindow):
             btn = QPushButton(str(n))
             btn.setFixedHeight(24)
             btn.setStyleSheet("padding: 0 8px;")
-            btn.setToolTip(f"{ref.book_ko} {ref.chapter}:{n}")
+            btn.setToolTip(f"{_book_name(ref.book_en, ref.book_ko)} {ref.chapter}:{n}")
             btn.clicked.connect(lambda _checked=False, r=ref, num=n: self._scroll_to(r, num))
             self._nav_layout.insertWidget(nav_insert, btn)
             nav_insert += 1
@@ -2093,9 +2108,17 @@ class MainWindow(QMainWindow):
 
     # ---- 선택 처리 ----
 
+    @staticmethod
+    def _resolve_book(text: str) -> tuple[str, str, int] | None:
+        """콤보의 현재 책 이름(영/한 무관)을 (영문, 한글, 장수)로 해석."""
+        r = resolve_book(text)
+        if r is None:
+            return None
+        en, ko = r
+        return en, ko, book_chapters(en)
+
     def _on_book_changed(self, idx: int):
-        ko = self.book_box.currentText()
-        info = lookup_by_ko(ko)
+        info = self._resolve_book(self.book_box.currentText())
         if not info:
             return
         _, _, chapters = info
@@ -2107,8 +2130,7 @@ class MainWindow(QMainWindow):
         self.verse_end.setValue(1)
 
     def _current_ref(self) -> Reference | None:
-        ko = self.book_box.currentText()
-        info = lookup_by_ko(ko)
+        info = self._resolve_book(self.book_box.currentText())
         if not info:
             return None
         en, ko_canonical, _ = info
@@ -2607,8 +2629,9 @@ class MainWindow(QMainWindow):
             lines = []
             for translation, book_en, chapter, msg in failures:
                 label = CrossBibleFetcher.TRANSLATION_LABELS.get(translation, translation)
-                ko = en_to_ko.get(book_en, book_en)
-                lines.append(f"[{label}] {ko} {chapter}장 — {msg}")
+                name = _book_name(book_en, en_to_ko.get(book_en, book_en))
+                unit = "ch" if _CURRENT_LANG == "en" else "장"
+                lines.append(f"[{label}] {name} {chapter}{unit} — {msg}")
             mbox.setDetailedText("\n".join(lines))
 
         mbox.exec()

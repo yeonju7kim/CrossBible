@@ -75,6 +75,10 @@ def book_names_ko() -> list[str]:
     return [ko for _, ko, _, _, _ in BOOKS]
 
 
+def book_names_en() -> list[str]:
+    return [en for en, _, _, _, _ in BOOKS]
+
+
 def lookup_by_ko(ko: str) -> tuple[str, str, int] | None:
     for en, k, _, _, chapters in BOOKS:
         if k == ko:
