@@ -80,6 +80,17 @@ class Storage:
             )
             self.conn.commit()
 
+    def get_chapter_verses(self, translation: str, book_en: str, chapter: int) -> list[tuple[int, str]]:
+        """한 장에 대해 캐시된 모든 절을 절 번호 순으로 반환 (없으면 빈 리스트)."""
+        with self._lock:
+            cur = self.conn.execute(
+                "SELECT verse, text FROM verses WHERE translation=? AND book_en=? AND chapter=? "
+                "ORDER BY verse",
+                (translation, book_en, chapter),
+            )
+            rows = cur.fetchall()
+        return [(int(n), str(t)) for n, t in rows]
+
     def chapter_cached(self, translation: str, book_en: str, chapter: int) -> bool:
         with self._lock:
             cur = self.conn.execute(
