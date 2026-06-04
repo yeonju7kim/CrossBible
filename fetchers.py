@@ -588,6 +588,12 @@ class CrossBibleFetcher:
             self.storage.put_verses(translation, book_en, chapter, verses)
         return verses
 
+    def get_cached(self, translation: str, ref: Reference) -> list[tuple[int, str]] | None:
+        """캐시에만 있으면 즉시 반환, 없으면 None. 네트워크/throttle 없음 (UI 스레드용)."""
+        if ref.whole_chapter:
+            return self.storage.get_chapter_verses(translation, ref.book_en, ref.chapter) or None
+        return self.storage.get_verses(translation, ref)
+
     def get_verses(self, translation: str, ref: Reference, force: bool = False) -> list[tuple[int, str]]:
         if ref.whole_chapter:
             return self.get_whole_chapter(translation, ref.book_en, ref.chapter, force=force)

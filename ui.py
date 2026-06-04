@@ -1755,7 +1755,25 @@ class MainWindow(QMainWindow):
             if not ref.whole_chapter and ref not in self._passage_verses:
                 self._passage_verses[ref] = ref.verse_numbers()
 
-        # 화면을 재조회 없이 다시 그린다 — 우측 절 블록은 재사용(펼침/메모 상태 유지).
+        # 캐시에 있는 본문은 UI 스레드에서 즉시(동기 SQL) 채운다. 그래야 캐시된 번역본이
+        # '캐시 안 된 번역본의 네트워크 대기' 뒤에 줄 서지 않고 바로 뜬다.
+        # 진짜 없는 (구절, 번역본) 만 백그라운드 네트워크 조회 대상(targets)으로 남긴다.
+        enabled = self._enabled_translations()
+        targets: list[tuple[Reference, str]] = []
+        for ref in flat:
+            for t in enabled:
+                if (ref, t) in self._verse_data:
+                    continue
+                if not force:
+                    cached = self.fetcher.get_cached(t, ref)
+                    if cached is not None:
+                        self._verse_data[(ref, t)] = cached
+                        if ref.whole_chapter and ref not in self._passage_verses:
+                            self._passage_verses[ref] = [n for n, _ in cached]
+                        continue
+                targets.append((ref, t))
+
+        # 화면을 그린다 (캐시된 본문은 이미 채워져 바로 보임). 우측 블록은 재사용.
         self._rebuild_side()
         self._render_left()
 
@@ -1765,12 +1783,6 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle(tr("app.title"))
 
-        # 조회가 필요한 (구절, 번역본) 만 추린다 (force 면 전부 다시).
-        enabled = self._enabled_translations()
-        targets = [
-            (ref, t) for ref in flat for t in enabled
-            if force or (ref, t) not in self._verse_data
-        ]
         self._fetch(targets, force)
 
     def _fetch(self, targets: list[tuple[Reference, str]], force: bool = False):
