@@ -31,8 +31,11 @@ _CHAPTER_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)$")
 
 
 def _normalize(text: str) -> str:
-    # 다양한 대시를 ASCII 하이픈으로 통일
-    return text.replace("–", "-").replace("—", "-").replace("−", "-")
+    # 다양한 대시/물결표를 ASCII 하이픈으로 통일 (범위 구분자)
+    #   –(en) —(em) −(minus) ~ ～(전각) 〜(물결)
+    for ch in ("–", "—", "−", "~", "～", "〜"):
+        text = text.replace(ch, "-")
+    return text
 
 
 def resolve_book(name: str) -> tuple[str, str] | None:
