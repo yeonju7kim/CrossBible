@@ -83,13 +83,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.new_panel_tooltip": "빈 패널을 추가합니다. ◀ ▶ 로 구절을 옮겨올 수 있어요.",
         "selector.refresh": "↻ 새로고침",
         "selector.refresh_tooltip": "현재 화면의 구절을 캐시 무시하고 다시 가져옵니다 (오래되거나 누락된 본문 갱신).",
+        "selector.jump": "↦ 패널",
+        "selector.jump_tooltip": "패널 번호로 이동합니다 (4개 초과 시 가로 스크롤).",
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
-        "multi.placeholder": "여러 구절: Acts 12:12, 12:25, Exodus 6, 15:37-40, Col 4:10 …",
+        "multi.placeholder": "Acts 1, Acts 2:1-3 || Acts 3:3    (쉼표=구절 · ||=패널 · Enter=미리보기)",
         "multi.lookup": "조회",
+        "multi.lookup_tooltip": "입력한 구절로 화면을 교체합니다 (|| 로 패널 분리).",
         "multi.add": "＋ 추가",
-        "multi.tooltip": "쉼표로 구분. 'Exodus 6' 처럼 장만 쓰면 그 장 전체. 책 생략 시 앞 구절의 책을 이어 씁니다. 예) Acts 12:12, 12:25, 13:5",
+        "multi.to_text": "현재→텍스트",
+        "multi.to_text_tooltip": "지금 화면의 패널 구성을 입력란에 텍스트로 뽑습니다 (|| 구분).",
+        "multi.tooltip": (
+            "여러 구절을 한 번에 입력. 규칙:\n"
+            "  • 쉼표(,) 로 구절 구분 — Acts 12:12, 13:5\n"
+            "  • 범위는 - 또는 ~ — Acts 15:37-40\n"
+            "  • 장만 쓰면 그 장 전체 — Exodus 6, John 3\n"
+            "  • 책 생략 시 앞 구절의 책을 이어 씀 — Acts 1, 2:3\n"
+            "  • || 로 패널 나누기 — Acts 1, Acts 2:1-3 || Acts 3:3\n"
+            "Enter=팝업 미리보기 · 조회=패널 교체 · ＋추가=패널로 추가"
+        ),
+        "popup.title": "구절 미리보기",
+        "jump.title": "패널로 이동",
+        "jump.label": "이동할 패널 번호 (1–{n}):",
+        "jump.none": "표시 중인 패널이 없습니다.",
         "parse.none_title": "구절 없음",
         "parse.none_body": "조회할 구절을 입력하세요.",
         "parse.problem_title": "구절 입력 확인",
@@ -272,13 +289,30 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.new_panel_tooltip": "Add an empty panel. Move blocks into it with ◀ ▶.",
         "selector.refresh": "↻ Refresh",
         "selector.refresh_tooltip": "Re-fetch the current passages ignoring the cache (refresh stale or missing text).",
+        "selector.jump": "↦ Panel",
+        "selector.jump_tooltip": "Jump to a panel by number (horizontal scroll when over 4).",
         "selector.side_on": "Original / Commentary / Notes",
         "selector.side_off": "Original / Commentary / Notes (off)",
         "selector.side_tooltip": "F9: toggle the right panel",
-        "multi.placeholder": "Multiple refs: Acts 12:12, 12:25, Exodus 6, 15:37-40, Col 4:10 …",
+        "multi.placeholder": "Acts 1, Acts 2:1-3 || Acts 3:3    (comma=passage · ||=panel · Enter=preview)",
         "multi.lookup": "Look up",
+        "multi.lookup_tooltip": "Replace the view with these passages (|| splits panels).",
         "multi.add": "＋ Add",
-        "multi.tooltip": "Comma-separated. 'Exodus 6' (chapter only) = whole chapter. Omit the book to carry over the previous one.",
+        "multi.to_text": "→ Text",
+        "multi.to_text_tooltip": "Put the current panel layout into the input as text (|| separated).",
+        "multi.tooltip": (
+            "Enter multiple passages at once. Rules:\n"
+            "  • Comma (,) separates passages — Acts 12:12, 13:5\n"
+            "  • Ranges with - or ~ — Acts 15:37-40\n"
+            "  • Chapter only = whole chapter — Exodus 6, John 3\n"
+            "  • Omit the book to carry over the previous — Acts 1, 2:3\n"
+            "  • || splits into panels — Acts 1, Acts 2:1-3 || Acts 3:3\n"
+            "Enter = popup preview · Look up = replace panels · ＋Add = add as panels"
+        ),
+        "popup.title": "Passage preview",
+        "jump.title": "Jump to panel",
+        "jump.label": "Panel number (1–{n}):",
+        "jump.none": "No panels on screen.",
         "parse.none_title": "No reference",
         "parse.none_body": "Enter a reference to look up.",
         "parse.problem_title": "Check your references",
@@ -470,6 +504,10 @@ def _book_name(book_en: str, book_ko: str) -> str:
 
 def _ref_header(ref: Reference) -> str:
     return ref.header_en if _CURRENT_LANG == "en" else ref.header_ko
+
+
+def _esc(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------- 패널 모델 ----------
@@ -1178,6 +1216,100 @@ class ExtrasWorker(QObject):
         self.finished.emit()
 
 
+class PassagePopup(QDialog):
+    """패널을 건드리지 않고 입력한 구절만 빠르게 보여주는 모드리스 미리보기 (#5).
+
+    캐시된 본문은 즉시, 안 받은 번역본만 백그라운드로 채운다. '||' 는 구분선으로 표시.
+    """
+
+    def __init__(self, fetcher: CrossBibleFetcher, parent=None):
+        super().__init__(parent)
+        self.fetcher = fetcher
+        self.setWindowTitle(tr("popup.title"))
+        self.resize(660, 560)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 10, 10, 10)
+        self.browser = QTextBrowser()
+        self.browser.setOpenExternalLinks(True)
+        v.addWidget(self.browser)
+
+        self._panels: list[Panel] = []
+        self._translations: list[str] = []
+        self._data: dict[tuple[Reference, str], list] = {}
+        self._thread: QThread | None = None
+        self._worker: VersesWorker | None = None
+
+    def show_panels(self, panels: list[Panel], translations: list[str]):
+        self._panels = panels
+        self._translations = translations
+        self._data = {}
+        # 캐시에 있는 건 동기로 즉시 채우고, 없는 것만 백그라운드 조회.
+        targets: list[tuple[Reference, str]] = []
+        for p in panels:
+            for ref in p.blocks:
+                for t in translations:
+                    cached = self.fetcher.get_cached(t, ref)
+                    if cached is not None:
+                        self._data[(ref, t)] = cached
+                    else:
+                        targets.append((ref, t))
+        head = panels[0].blocks[0].header_en if panels and panels[0].blocks else ""
+        self.setWindowTitle(tr("popup.title") + (f" — {head}…" if head else ""))
+        self._render()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._fetch(targets)
+
+    def _fetch(self, targets):
+        if self._thread is not None:
+            try:
+                if self._worker is not None:
+                    self._worker.cancel()
+                    self._worker.disconnect()
+                    self._worker.blockSignals(True)
+                self._thread.quit()
+            except Exception:
+                pass
+            self._worker = None
+            self._thread = None
+        if not targets:
+            return
+        self._thread = QThread(self)
+        self._worker = VersesWorker(self.fetcher, targets)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.verses_ready.connect(self._on_ready)
+        self._worker.finished.connect(self._thread.quit)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.start()
+
+    def _on_ready(self, ref, t, verses):
+        self._data[(ref, t)] = verses
+        self._render()
+
+    def _render(self):
+        parts: list[str] = []
+        for pi, p in enumerate(self._panels):
+            if pi > 0:
+                parts.append("<hr/>")
+            for ref in p.blocks:
+                parts.append(f"<h3 style='margin:6px 0 2px'>{_esc(_ref_header(ref))}</h3>")
+                for t in self._translations:
+                    label = CrossBibleFetcher.TRANSLATION_LABELS.get(t, t)
+                    data = self._data.get((ref, t))
+                    if data is None:
+                        body = "<span style='color:#888'>…</span>"
+                    else:
+                        body = " ".join(f"<b>{n}</b>&nbsp;{_esc(txt)}" for n, txt in data)
+                    parts.append(
+                        f"<p style='margin:2px 0'>"
+                        f"<span style='color:#999; font-size:9pt'>{label}</span>&nbsp;&nbsp;{body}</p>"
+                    )
+        self.browser.setHtml("\n".join(parts) or "—")
+
+
 # ---------- 보조 위젯 ----------
 
 def _section_label(text: str, *, level: int = 1) -> QLabel:
@@ -1422,7 +1554,8 @@ _OPEN_WINDOWS: list = []
 
 
 class MainWindow(QMainWindow):
-    MAX_PANELS = 4  # 가로 패널(세로 구절 묶음) 최대 개수
+    MAX_PANELS = 12       # 가로 패널 최대 개수 (4개까지 한 화면, 그 이상은 가로 스크롤)
+    PANEL_MIN_WIDTH = 300  # 패널 최소 폭 — 약 4개가 한 화면에 들어오는 기준
 
     def __init__(self, storage: Storage, fetcher: CrossBibleFetcher, settings: QSettings):
         super().__init__()
@@ -1442,6 +1575,8 @@ class MainWindow(QMainWindow):
         self._verse_data: dict[tuple[Reference, str], list] = {}
         self._verse_errors: dict[tuple[Reference, str], str] = {}
         self._passage_verses: dict[Reference, list[int]] = {}
+        self._panel_widgets: list[QWidget] = []   # 패널 점프용
+        self._passage_popup: "PassagePopup | None" = None  # Enter 미리보기 팝업
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1653,6 +1788,11 @@ class MainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(self._on_refresh)
         row.addWidget(self.refresh_btn)
 
+        self.jump_btn = QPushButton(tr("selector.jump"))
+        self.jump_btn.setToolTip(tr("selector.jump_tooltip"))
+        self.jump_btn.clicked.connect(self._on_jump_panel)
+        row.addWidget(self.jump_btn)
+
         row.addStretch(1)
 
         self.side_toggle_btn = QPushButton(tr("selector.side_on"))
@@ -1668,14 +1808,21 @@ class MainWindow(QMainWindow):
         self.multi_edit = QLineEdit()
         self.multi_edit.setPlaceholderText(tr("multi.placeholder"))
         self.multi_edit.setToolTip(tr("multi.tooltip"))
-        self.multi_edit.returnPressed.connect(self._on_multi_lookup)
+        # Enter = 패널을 건드리지 않고 팝업으로 미리보기 (#5)
+        self.multi_edit.returnPressed.connect(self._on_multi_popup)
         row.addWidget(self.multi_edit, 1)
         multi_lookup_btn = QPushButton(tr("multi.lookup"))
+        multi_lookup_btn.setToolTip(tr("multi.lookup_tooltip"))
         multi_lookup_btn.clicked.connect(self._on_multi_lookup)
         row.addWidget(multi_lookup_btn)
         multi_add_btn = QPushButton(tr("multi.add"))
         multi_add_btn.clicked.connect(self._on_multi_add)
         row.addWidget(multi_add_btn)
+        # 현재 화면의 패널 구성을 입력란에 텍스트로 뽑기 (#3)
+        to_text_btn = QPushButton(tr("multi.to_text"))
+        to_text_btn.setToolTip(tr("multi.to_text_tooltip"))
+        to_text_btn.clicked.connect(self._on_panels_to_text)
+        row.addWidget(to_text_btn)
         return row
 
     def _on_whole_toggled(self, checked: bool):
@@ -1696,12 +1843,20 @@ class MainWindow(QMainWindow):
         return row
 
     def _build_translations_column(self) -> QWidget:
-        # 구절 패널들을 좌→우로 나란히 (최대 4). 각 패널은 자체 세로 스크롤을 가진다.
+        # 구절 패널들을 좌→우로 나란히. 4개까지 한 화면, 그 이상은 가로 스크롤.
+        # 각 패널은 자체 세로 스크롤을 가진다.
         self._translations_container = QWidget()
         self._left_layout = QHBoxLayout(self._translations_container)
         self._left_layout.setContentsMargins(0, 0, 0, 0)
         self._left_layout.setSpacing(6)
-        return self._translations_container
+        self._panel_widgets: list[QWidget] = []  # 패널 점프(#2)용 위젯 목록
+
+        self._left_scroll = QScrollArea()
+        self._left_scroll.setWidget(self._translations_container)
+        self._left_scroll.setWidgetResizable(True)
+        self._left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        return self._left_scroll
 
     def _build_side_column(self) -> QWidget:
         wrapper = QWidget()
@@ -1865,21 +2020,23 @@ class MainWindow(QMainWindow):
 
     def _render_left(self):
         self._clear_left()
+        self._panel_widgets = []
         if not self._panels:
             return
         enabled = self._enabled_translations()
         self._translations_container.setUpdatesEnabled(False)
         try:
             for panel_idx, panel in enumerate(self._panels):
-                self._left_layout.addWidget(
-                    self._render_panel(panel_idx, panel, enabled), 1
-                )
+                w = self._render_panel(panel_idx, panel, enabled)
+                self._panel_widgets.append(w)
+                self._left_layout.addWidget(w, 1)
         finally:
             self._translations_container.setUpdatesEnabled(True)
 
     def _render_panel(self, panel_idx: int, panel: Panel,
                       enabled: list[str]) -> QWidget:
         col = QWidget()
+        col.setMinimumWidth(self.PANEL_MIN_WIDTH)  # 4개 초과 시 가로 스크롤 유발
         cv = QVBoxLayout(col)
         cv.setContentsMargins(4, 6, 4, 4)
         cv.setSpacing(3)
@@ -1997,10 +2154,7 @@ class MainWindow(QMainWindow):
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        if t in ("GAE", "KLB"):
-            bf = body.font()
-            bf.setPointSize(bf.pointSize() + 1)
-            body.setFont(bf)
+        # 모든 번역본 동일 크기 (기본 = 우리말성경 크기)
 
         if (ref, t) in self._verse_errors:
             body.setText(
@@ -2031,10 +2185,6 @@ class MainWindow(QMainWindow):
             line.setWordWrap(True)
             line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             line.setContentsMargins(14, 0, 0, 0)
-            if t in ("GAE", "KLB"):
-                lf = line.font()
-                lf.setPointSize(lf.pointSize() + 1)
-                line.setFont(lf)
             v.addWidget(line)
         return box
 
@@ -2301,18 +2451,33 @@ class MainWindow(QMainWindow):
         self._library_dialog.raise_()
         self._library_dialog.activateWindow()
 
-    def _parse_multi(self) -> list[Reference] | None:
+    def _parse_multi_panels(self) -> list[Panel] | None:
+        """입력 텍스트를 패널 목록으로 파싱. '||' 가 패널 구분자.
+
+        예) "Acts 1, Acts 2:1-3 || Acts 3:3"
+            → [Panel([Acts 1, Acts 2:1-3]), Panel([Acts 3:3])]
+        '||' 가 없으면 한 패널에 모두 쌓인다.
+        """
         text = self.multi_edit.text().strip()
         if not text:
             QMessageBox.information(self, tr("parse.none_title"), tr("parse.none_body"))
             return None
-        refs, errors = parse_references(text)
-        if errors:
+        panels: list[Panel] = []
+        all_errors: list[str] = []
+        for seg in text.split("||"):
+            seg = seg.strip()
+            if not seg:
+                continue
+            refs, errors = parse_references(seg)
+            all_errors.extend(errors)
+            if refs:
+                panels.append(Panel(refs))
+        if all_errors:
             QMessageBox.warning(
                 self, tr("parse.problem_title"),
-                tr("parse.problem_unparsed", tokens=", ".join(errors)),
+                tr("parse.problem_unparsed", tokens=", ".join(all_errors)),
             )
-        return refs
+        return panels
 
     def _add_refs_to_first_panel(self, refs: list[Reference]):
         panels = self._copy_panels()
@@ -2322,16 +2487,44 @@ class MainWindow(QMainWindow):
         self._apply_panels(panels)
 
     def _on_multi_lookup(self):
-        refs = self._parse_multi()
-        if not refs:
+        panels = self._parse_multi_panels()
+        if not panels:
             return
-        self._apply_panels([Panel(list(refs))])  # 교체: 한 패널에 모두 쌓기
+        self._apply_panels(panels)  # 교체: '||' 단위로 패널 분리
 
     def _on_multi_add(self):
-        refs = self._parse_multi()
-        if not refs:
+        panels = self._parse_multi_panels()
+        if not panels:
             return
-        self._add_refs_to_first_panel(refs)  # 맨 왼쪽 패널에 쌓기
+        self._apply_panels(self._copy_panels() + panels)  # 현재 뒤에 패널로 추가
+
+    def _on_multi_popup(self):
+        # Enter: 패널을 건드리지 않고 팝업으로만 미리보기 (#5)
+        panels = self._parse_multi_panels()
+        if not panels:
+            return
+        if self._passage_popup is None:
+            self._passage_popup = PassagePopup(self.fetcher, self)
+        self._passage_popup.show_panels(panels, self._enabled_translations())
+
+    def _on_panels_to_text(self):
+        # 현재 패널 구성을 '||' 텍스트로 입력란에 뽑는다 (#3). 영문 헤더라 다시 파싱 가능.
+        text = " || ".join(
+            ", ".join(r.header_en for r in p.blocks)
+            for p in self._panels if p.blocks
+        )
+        self.multi_edit.setText(text)
+        self.multi_edit.setFocus()
+
+    def _on_jump_panel(self):
+        # 패널 번호로 가로 스크롤 이동 (#2)
+        n = len(self._panels)
+        if n == 0:
+            QMessageBox.information(self, tr("jump.title"), tr("jump.none"))
+            return
+        idx, ok = QInputDialog.getInt(self, tr("jump.title"), tr("jump.label", n=n), 1, 1, n)
+        if ok and 1 <= idx <= len(self._panel_widgets):
+            self._left_scroll.ensureWidgetVisible(self._panel_widgets[idx - 1], 50, 0)
 
     def _on_verses_ready(self, ref: Reference, translation: str, verses: list):
         self._verse_data[(ref, translation)] = verses
