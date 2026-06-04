@@ -101,20 +101,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
-        "multi.placeholder": "Acts 1, Acts 2:1-3 || Acts 3:3    (쉼표=구절 · ||=패널 · Enter=미리보기)",
+        "multi.placeholder": "2 Timothy 4:6-4:22 || Numbers 15:1–12, Numbers 28:7 || 1 Tim. 6:12, Acts 20:24, 2 Tim 1:4, 4:21 || Colossians 4:14, Philemon 1:24 || Acts 12:12, 12:25, 13:5, 13:13, 15:37–40, Col 4:10, Philem 1:24 || Acts 20:4, Ephesians 6:21–22, Colossians 4:7–8",
         "multi.lookup": "조회",
         "multi.lookup_tooltip": "입력한 구절로 화면을 교체합니다 (|| 로 패널 분리).",
         "multi.add": "＋ 추가",
         "multi.to_text": "현재→텍스트",
-        "multi.to_text_tooltip": "지금 화면의 패널 구성을 입력란에 텍스트로 뽑습니다 (|| 구분).",
+        "multi.to_text_tooltip": "지금 화면의 패널 구성을 텍스트로 뽑아 클립보드에 복사합니다 (|| 구분).",
+        "multi.copied": "클립보드에 복사되었습니다.",
         "multi.tooltip": (
             "여러 구절을 한 번에 입력. 규칙:\n"
             "  • 쉼표(,) 로 구절 구분 — Acts 12:12, 13:5\n"
-            "  • 범위는 - 또는 ~ — Acts 15:37-40\n"
+            "  • 범위는 - / ~ / – — Acts 15:37–40, 2 Tim 4:6-4:22\n"
+            "  • 줄임말도 됨 — 2 Tim. 2:14, Col, Philem (한글: 행, 골, 딤후)\n"
             "  • 장만 쓰면 그 장 전체 — Exodus 6, John 3\n"
-            "  • 책 생략 시 앞 구절의 책을 이어 씀 — Acts 1, 2:3\n"
-            "  • || 로 패널 나누기 — Acts 1, Acts 2:1-3 || Acts 3:3\n"
-            "Enter=팝업 미리보기 · 조회=패널 교체 · ＋추가=패널로 추가"
+            "  • 책 생략 시 앞 구절의 책을 이어 씀 — 2 Tim 1:4, 4:21\n"
+            "  • || 로 패널 나누기\n"
+            "  • Enter=팝업 미리보기 · 조회=패널 교체 · ＋추가=패널로 추가\n"
+            "\n"
+            "예) 2 Tim. 4:6-4:22 || 1 Tim. 6:12, 2 Tim 1:4, 4:21 || Col 4:14, Philem 1:24"
         ),
         "popup.title": "구절 미리보기",
         "jump.title": "패널로 이동",
@@ -128,6 +132,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "passage.split_tooltip": "이 구절을 위/아래 둘로 나누기",
         "block.move_left": "왼쪽 패널로 옮기기",
         "block.move_right": "오른쪽 패널로 옮기기",
+        "block.to_panel": "특정 패널 번호로 옮기기",
+        "block.to_panel_title": "패널로 옮기기",
+        "block.to_panel_label": "옮길 패널 번호 (1–{n}):",
         "block.move_up": "위로 (패널 안 순서)",
         "block.move_down": "아래로 (패널 안 순서)",
         "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
@@ -308,20 +315,24 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.side_on": "Original / Commentary / Notes",
         "selector.side_off": "Original / Commentary / Notes (off)",
         "selector.side_tooltip": "F9: toggle the right panel",
-        "multi.placeholder": "Acts 1, Acts 2:1-3 || Acts 3:3    (comma=passage · ||=panel · Enter=preview)",
+        "multi.placeholder": "2 Timothy 4:6-4:22 || Numbers 15:1–12, Numbers 28:7 || 1 Tim. 6:12, Acts 20:24, 2 Tim 1:4, 4:21 || Colossians 4:14, Philemon 1:24 || Acts 12:12, 12:25, 13:5, 13:13, 15:37–40, Col 4:10, Philem 1:24 || Acts 20:4, Ephesians 6:21–22, Colossians 4:7–8",
         "multi.lookup": "Look up",
         "multi.lookup_tooltip": "Replace the view with these passages (|| splits panels).",
         "multi.add": "＋ Add",
         "multi.to_text": "→ Text",
-        "multi.to_text_tooltip": "Put the current panel layout into the input as text (|| separated).",
+        "multi.to_text_tooltip": "Copy the current panel layout to the clipboard as text (|| separated).",
+        "multi.copied": "Copied to clipboard.",
         "multi.tooltip": (
             "Enter multiple passages at once. Rules:\n"
             "  • Comma (,) separates passages — Acts 12:12, 13:5\n"
-            "  • Ranges with - or ~ — Acts 15:37-40\n"
+            "  • Ranges with - / ~ / – — Acts 15:37–40, 2 Tim 4:6-4:22\n"
+            "  • Abbreviations OK — 2 Tim. 2:14, Col, Philem\n"
             "  • Chapter only = whole chapter — Exodus 6, John 3\n"
-            "  • Omit the book to carry over the previous — Acts 1, 2:3\n"
-            "  • || splits into panels — Acts 1, Acts 2:1-3 || Acts 3:3\n"
-            "Enter = popup preview · Look up = replace panels · ＋Add = add as panels"
+            "  • Omit the book to carry over the previous — 2 Tim 1:4, 4:21\n"
+            "  • || splits into panels\n"
+            "  • Enter = popup preview · Look up = replace panels · ＋Add = add as panels\n"
+            "\n"
+            "e.g.  2 Tim. 4:6-4:22 || 1 Tim. 6:12, 2 Tim 1:4, 4:21 || Col 4:14, Philem 1:24"
         ),
         "popup.title": "Passage preview",
         "jump.title": "Jump to panel",
@@ -335,6 +346,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "passage.split_tooltip": "Split this passage into top/bottom",
         "block.move_left": "Move to the left panel",
         "block.move_right": "Move to the right panel",
+        "block.to_panel": "Move to a specific panel number",
+        "block.to_panel_title": "Move to panel",
+        "block.to_panel_label": "Target panel number (1–{n}):",
         "block.move_up": "Move up (within panel)",
         "block.move_down": "Move down (within panel)",
         "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
@@ -2116,7 +2130,7 @@ class MainWindow(QMainWindow):
         sub.setStyleSheet("color:#888; font-size:9pt;")
         bl.addWidget(sub)
 
-        # 버튼: ◀ ▶ (패널 간 이동) · ↑ ↓ (패널 안 순서) · ✂ split · ✕ 제거
+        # 버튼: ◀ ▶ (이웃 패널) · ↦ (특정 패널로) · ↑ ↓ (패널 안 순서) · ✂ split · ✕ 제거
         n_panels = len(self._panels)
         n_blocks = len(self._panels[panel_idx].blocks)
         controls = [
@@ -2124,6 +2138,8 @@ class MainWindow(QMainWindow):
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block_panel(p, b, -1), panel_idx > 0),
             ("▶", tr("block.move_right"),
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block_panel(p, b, +1), panel_idx < n_panels - 1),
+            ("↦", tr("block.to_panel"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._move_block_to_panel(p, b), n_panels > 1),
             ("↑", tr("block.move_up"),
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block(p, b, -1), block_idx > 0),
             ("↓", tr("block.move_down"),
@@ -2404,6 +2420,27 @@ class MainWindow(QMainWindow):
         panels[q].blocks.append(ref)
         self._apply_panels(panels)
 
+    def _move_block_to_panel(self, panel_idx: int, block_idx: int):
+        # 이 블록을 '특정 패널 번호'로 바로 옮긴다 (예: 1번 → 5번).
+        n = len(self._panels)
+        if n <= 1 or not (0 <= panel_idx < n):
+            return
+        target, ok = QInputDialog.getInt(
+            self, tr("block.to_panel_title"), tr("block.to_panel_label", n=n),
+            panel_idx + 1, 1, n,
+        )
+        if not ok:
+            return
+        q = target - 1
+        if q == panel_idx:
+            return
+        panels = self._copy_panels()
+        if not (0 <= block_idx < len(panels[panel_idx].blocks)):
+            return
+        ref = panels[panel_idx].blocks.pop(block_idx)
+        panels[q].blocks.append(ref)
+        self._apply_panels(panels)
+
     def _split_block(self, panel_idx: int, block_idx: int):
         """블록의 절 범위를 위/아래 둘로 나눠 같은 패널에 쌓는다 ([lo..k], [k+1..hi])."""
         if not (0 <= panel_idx < len(self._panels)):
@@ -2535,13 +2572,16 @@ class MainWindow(QMainWindow):
         self._passage_popup.show_panels(panels, self._enabled_translations())
 
     def _on_panels_to_text(self):
-        # 현재 패널 구성을 '||' 텍스트로 입력란에 뽑는다 (#3). 영문 헤더라 다시 파싱 가능.
+        # 현재 패널 구성을 '||' 텍스트로 뽑아 입력란 + 클립보드에 넣는다 (영문 헤더라 다시 파싱 가능).
         text = " || ".join(
             ", ".join(r.header_en for r in p.blocks)
             for p in self._panels if p.blocks
         )
+        if not text:
+            return
         self.multi_edit.setText(text)
-        self.multi_edit.setFocus()
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage(tr("multi.copied"), 3000)
 
     def _on_jump_panel(self):
         # 패널 번호로 가로 스크롤 이동 (#2)
