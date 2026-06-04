@@ -3,8 +3,8 @@
 소스
 ----
 - 개역개정 (GAE):     대한성서공회 https://www.bskorea.or.kr
-- 우리말성경 (WLB):   유튜버전(YouVersion) bible.com  (best-effort, 없으면 안내)
-- NIV / ESV:          https://www.biblegateway.com
+- 우리말성경 (WLB):   https://nocr.net/korwrm
+- 현대인의 성경 (KLB) / NIV / ESV: https://www.biblegateway.com
 - 원어/Interlinear:   https://biblehub.com/interlinear/{book}/{c}-{v}.htm
 - 주석:               https://biblehub.com/commentaries/{book}/{c}-{v}.htm
 
@@ -19,6 +19,7 @@ from urllib.parse import urlencode
 import requests
 from bs4 import BeautifulSoup
 
+from nocr_data import NOCR_CHAPTER_POSTS
 from reference import Reference
 from storage import Storage
 
@@ -351,6 +352,72 @@ class YouVersionFetcher:
         return sorted(verses.items())
 
 
+# ---------- nocr.net: 우리말성경 (WLB) ----------
+
+class NocrFetcher:
+    """nocr.net/korwrm 의 우리말성경 본문 조회.
+
+    각 장이 별도 글로 게시되어 있고, 글 본문 안에 "절번호:절번호 본문" 평문이
+    <br/><br/> 로 구분되어 들어 있다. 사이트 자체의 절 번호 표기를 그대로 사용.
+    """
+
+    BASE = "https://nocr.net/korwrm"
+
+    def fetch(self, ref: Reference, version: str = "WLB") -> list[tuple[int, str]]:
+        all_verses = dict(self.fetch_chapter(ref.book_en, ref.chapter))
+        result = [(n, t) for n, t in sorted(all_verses.items())
+                  if ref.verse_start <= n <= ref.verse_end]
+        missing = [n for n in ref.verse_numbers() if n not in {n for n, _ in result}]
+        if missing:
+            raise RuntimeError(f"우리말성경 누락 절 {missing} ({ref.header_ko})")
+        return result
+
+    def fetch_chapter(self, book_en: str, chapter: int) -> list[tuple[int, str]]:
+        chapters = NOCR_CHAPTER_POSTS.get(book_en)
+        if chapters is None:
+            raise RuntimeError(f"우리말성경 책 매핑 없음: {book_en}")
+        post_id = chapters.get(chapter)
+        if post_id is None:
+            raise RuntimeError(f"우리말성경 장 매핑 없음: {book_en} {chapter}")
+        url = f"{self.BASE}/{post_id}"
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.encoding = r.apparent_encoding or "utf-8"
+        r.raise_for_status()
+        return self._parse_chapter(r.text, chapter)
+
+    @staticmethod
+    def _parse_chapter(html: str, chapter: int) -> list[tuple[int, str]]:
+        soup = BeautifulSoup(html, "html.parser")
+        article = soup.find("article")
+        if article is None:
+            raise RuntimeError("nocr.net 본문 컨테이너(article) 없음")
+        body = article.find("div", class_=re.compile(r"xe_content"))
+        if body is None:
+            body = article
+        # <br/><br/> 가 절 구분자. 줄바꿈으로 텍스트화 후 라인 단위 파싱.
+        for br in body.find_all("br"):
+            br.replace_with("\n")
+        raw = body.get_text("\n", strip=False)
+
+        verses: dict[int, str] = {}
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            m = re.match(r"^(\d+):(\d+)\s+(.+)$", line)
+            if not m:
+                continue
+            chap_n = int(m.group(1))
+            if chap_n != chapter:
+                continue
+            verse_n = int(m.group(2))
+            text = re.sub(r"\s+", " ", m.group(3)).strip()
+            if not text:
+                continue
+            verses[verse_n] = (verses.get(verse_n, "") + " " + text).strip()
+        return sorted(verses.items())
+
+
 # ---------- biblehub: interlinear (원어) ----------
 
 class BibleHubInterlinearFetcher:
@@ -485,11 +552,10 @@ class CrossBibleFetcher:
 
     POLITE_DELAY_SEC = 0.7
 
-    # 우리말성경(WLB)은 무료로 공개된 정형 API/페이지가 없어 현재 미연동.
-    # 대신 BibleGateway 의 KLB(현대인의 성경)를 두 번째 한국어 번역으로 사용.
-    TRANSLATIONS = ["GAE", "KLB", "NIV", "ESV"]
+    TRANSLATIONS = ["GAE", "WLB", "KLB", "NIV", "ESV"]
     TRANSLATION_LABELS = {
         "GAE": "개역개정",
+        "WLB": "우리말성경",
         "KLB": "현대인의 성경",
         "NIV": "NIV",
         "ESV": "ESV",
@@ -499,7 +565,8 @@ class CrossBibleFetcher:
         self.storage = storage
         self.bg = BibleGatewayFetcher()
         self.bsk = BsKoreaFetcher()
-        self.yv = YouVersionFetcher()
+        self.yv = YouVersionFetcher()  # legacy, currently unused
+        self.nocr = NocrFetcher()
         self.interlinear = BibleHubInterlinearFetcher()
         self.commentary = BibleHubCommentaryFetcher()
         self._last_call = 0.0
@@ -518,8 +585,7 @@ class CrossBibleFetcher:
         if translation in ("NIV", "ESV", "KLB"):
             return self.bg.fetch_chapter(book_en, chapter, translation)
         if translation == "WLB":
-            # WLB(YouVersion)은 현재 미연동 — 다운로드도 건너뜀
-            raise RuntimeError("WLB는 미연동 번역본입니다")
+            return self.nocr.fetch_chapter(book_en, chapter)
         raise RuntimeError(f"Unsupported translation: {translation}")
 
     def download_all(
@@ -603,7 +669,7 @@ class CrossBibleFetcher:
         if translation == "GAE":
             verses = self.bsk.fetch(ref, "GAE")
         elif translation == "WLB":
-            verses = self.yv.fetch(ref, "WLB")
+            verses = self.nocr.fetch(ref, "WLB")
         elif translation in ("NIV", "ESV", "KLB"):
             verses = self.bg.fetch(ref, translation)
         else:

@@ -24,7 +24,7 @@
 
 ## 기능
 
-- **4개 번역 동시 표시**: 개역개정 · 현대인의 성경 · NIV · ESV (체크박스로 켜고 끄기)
+- **5개 번역 동시 표시**: 개역개정 · 우리말성경 · 현대인의 성경 · NIV · ESV (체크박스로 켜고 끄기)
 - **절별 원어** (Strong's · 헬/히 원어 · 음역 · 영어 의미) — BibleHub Interlinear
 - **절별 주석** — BibleHub Commentaries (Ellicott · MacLaren · Benson · Matthew Henry · Barnes · Jamieson-Fausset-Brown · Matthew Poole · Gill · Geneva Study Bible 등 통합)
 - **절별 메모 자동 저장** — 로컬 SQLite (`~/.crossbible/data.db`)
@@ -96,11 +96,14 @@ python main.py
 | 항목 | 소스 | 저작권 |
 |---|---|---|
 | 개역개정 | 대한성서공회 (bskorea.or.kr) | 대한성서공회 |
+| 우리말성경 (WLB) | nocr.net/korwrm | 두란노 (사이트 자체 라이선스 명시는 부재) |
 | 현대인의 성경 (KLB) | Bible Gateway | Biblica / 생명의 말씀사 |
 | NIV | Bible Gateway | Biblica |
 | ESV | Bible Gateway | Crossway |
 | Interlinear · Commentary · Lexicon | BibleHub | BibleHub / 각 commentator |
 | 사전 (한↔영) | Google Translate (gtx endpoint) | Google |
+
+> **우리말성경 주의**: nocr.net 페이지에 권리자 동의 표시가 없습니다. 두란노가 본문 저작권자이며, 사이트가 권리자 신고로 갑자기 사라질 수도 있어요. 다른 source(bskorea/BibleGateway/BibleHub) 와 동일한 회색지대 위에서 동작하지만, 명시적 라이선스 표기가 더 약하다는 점만 알아두세요.
 
 요청 사이에 ~0.7초 throttle을 둡니다. **성경 다운로드**도 같은 throttle을 따르며 번역본 한 개 × 66권 기준 약 14분, 신약(27권)만 받으면 약 3분 정도입니다.
 
