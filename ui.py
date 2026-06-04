@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import (
     QAction,
@@ -919,7 +919,10 @@ class TranslationPanel(QWidget):
     def set_verses(self, verses: list[tuple[int, str]]):
         lines = []
         for n, text in verses:
-            lines.append(f"<p style='margin:2px 0'><b>{n}</b>&nbsp;&nbsp;{text}</p>")
+            safe = (
+                text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            )
+            lines.append(f"<p style='margin:2px 0'><b>{n}</b>&nbsp;&nbsp;{safe}</p>")
         self.body.setText("".join(lines))
 
     def set_error(self, message: str):
@@ -1021,7 +1024,12 @@ class VerseBlock(QWidget):
         self.note.setPlaceholderText(tr("verse.note_placeholder"))
         self.note.setFixedHeight(150)
         self.note.setPlainText(storage.get_note(ref.book_en, ref.chapter, verse))
-        self.note.textChanged.connect(self._save_note)
+        # 키 입력마다 DB commit 하지 않고, 입력이 멈춘 뒤 한 번만 저장 (디바운스).
+        self._note_timer = QTimer(self)
+        self._note_timer.setSingleShot(True)
+        self._note_timer.setInterval(500)
+        self._note_timer.timeout.connect(self._save_note)
+        self.note.textChanged.connect(self._note_timer.start)
         v.addWidget(self.note)
 
         v.addWidget(_hline())
@@ -1029,6 +1037,12 @@ class VerseBlock(QWidget):
     def _save_note(self):
         self.storage.put_note(self.ref.book_en, self.ref.chapter, self.verse,
                               self.note.toPlainText())
+
+    def flush_note(self):
+        """디바운스 대기 중인 메모를 즉시 저장. 블록 제거/앱 종료 직전에 호출."""
+        if self._note_timer.isActive():
+            self._note_timer.stop()
+            self._save_note()
 
     def set_interlinear(self, words: list[dict[str, str]]):
         self.interlinear.set_words(words)
@@ -1199,6 +1213,12 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        # 디바운스 대기 중인 메모를 마지막으로 저장
+        for block in self.verse_blocks.values():
+            try:
+                block.flush_note()
+            except Exception:
+                pass
         # 종료 직전에 한 번 더 flush — 일부 OS/빌드 환경에서 안전망
         try:
             self.settings.sync()
@@ -1312,8 +1332,9 @@ class MainWindow(QMainWindow):
         return wrapper
 
     def _rebuild_side(self, ref: Reference):
-        # 기존 절 블록 제거
+        # 기존 절 블록 제거 (디바운스 대기 중인 메모는 먼저 저장)
         for block in self.verse_blocks.values():
+            block.flush_note()
             block.setParent(None)
             block.deleteLater()
         self.verse_blocks.clear()
@@ -1377,7 +1398,7 @@ class MainWindow(QMainWindow):
         ref = self._current_ref()
         if ref is None:
             return
-        if ref.verse_end - ref.verse_start > 20:
+        if ref.verse_end - ref.verse_start + 1 > 20:
             QMessageBox.warning(
                 self,
                 tr("lookup.range_too_big_title"),
@@ -1386,11 +1407,16 @@ class MainWindow(QMainWindow):
             return
 
         if self._thread is not None:
+            # 진행 중인 조회는 기다리지 않고 분리한다. FetchWorker.run 은 블로킹
+            # requests 중간에 멈출 수 없어 wait() 하면 UI 가 최대 timeout(20초)만큼
+            # 얼어붙는다. 대신 취소 플래그를 세우고 잔여 신호를 막은 뒤 곧장 새 조회를
+            # 시작한다. 옛 스레드는 진행 중 요청이 끝나면 finished→deleteLater 로
+            # 스스로 정리된다.
             try:
                 if self._worker is not None:
                     self._worker.cancel()
+                    self._worker.blockSignals(True)
                 self._thread.quit()
-                self._thread.wait()
             except Exception:
                 pass
 
