@@ -75,10 +75,17 @@ REM Windows Explorer/taskbar caches exe icons aggressively; nudge the shell
 REM so the new icon shows up without a reboot.
 ie4uinit.exe -show >nul 2>&1
 
+REM Create a desktop shortcut (.lnk) to the built exe.
+echo Creating desktop shortcut...
+set "CB_EXE=%~dp0dist\CrossBible\CrossBible.exe"
+set "CB_DIR=%~dp0dist\CrossBible"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); $ws=New-Object -ComObject WScript.Shell; $l=$ws.CreateShortcut((Join-Path $d 'CrossBible.lnk')); $l.TargetPath='%CB_EXE%'; $l.WorkingDirectory='%CB_DIR%'; $l.IconLocation='%CB_EXE%,0'; $l.Save()" && echo  - Desktop shortcut created: CrossBible.lnk || echo  [WARN] Could not create the desktop shortcut.
+
 echo.
 echo ==========================================
 echo  Build complete!
 echo  Output: dist\CrossBible\CrossBible.exe
+echo  Shortcut: Desktop\CrossBible.lnk
 echo.
 echo  If the .exe icon still looks like the old one in Explorer,
 echo  it's the Windows icon cache. Try one of:

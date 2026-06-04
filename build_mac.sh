@@ -62,10 +62,24 @@ pyinstaller --clean --noconfirm \
     --collect-submodules PyQt6 \
     main.py
 
+# 바탕화면에 바로가기 생성: Finder 별칭(alias) 시도 → 실패하면 심볼릭 링크.
+echo "Creating desktop shortcut..."
+APP="$PWD/dist/CrossBible.app"
+DESKTOP="$HOME/Desktop"
+rm -f "$DESKTOP/CrossBible" "$DESKTOP/CrossBible.app" 2>/dev/null || true
+if osascript -e "tell application \"Finder\" to make alias file to (POSIX file \"$APP\") at (POSIX file \"$DESKTOP\")" \
+             -e "tell application \"Finder\" to set name of result to \"CrossBible\"" >/dev/null 2>&1; then
+    echo "  - Desktop alias created: CrossBible"
+else
+    ln -sfn "$APP" "$DESKTOP/CrossBible.app" && echo "  - Desktop symlink created: CrossBible.app" \
+        || echo "  [WARN] Could not create the desktop shortcut."
+fi
+
 echo
 echo "=========================================="
 echo "  Build complete!"
 echo "  Output: dist/CrossBible.app"
+echo "  Shortcut: ~/Desktop/CrossBible"
 echo
 echo "  실행:  open dist/CrossBible.app"
 echo "  (서명 안 된 앱이라 처음엔 우클릭 → 열기, 또는"
