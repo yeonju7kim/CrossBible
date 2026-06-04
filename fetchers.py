@@ -351,40 +351,46 @@ class BibleHubInterlinearFetcher:
     @staticmethod
     def _parse(html: str) -> list[dict[str, str]]:
         soup = BeautifulSoup(html, "html.parser")
-        # biblehub interlinear: 단어별 <table class="tablefloat"><td>…</td></table>.
-        # 셀 안의 의미 있는 span:
-        #   .pos       — Strong's number
-        #   .translit  — 음역
-        #   .greek / .hebrew — 원어
-        #   .eng       — 영어 의미
-        # 두 번째 .strongsnt 는 품사 표시(Adv 등) — 영어 의미 뒤에 붙임.
+        # biblehub interlinear: 단어별 <table class="tablefloat">(그리스어/신약) 또는
+        # <table class="tablefloatheb">(히브리어/구약). 셀 안의 의미 있는 span:
+        #   .pos              — Strong's number (그리스어). 히브리어는 pos 가 없고
+        #                       첫 숫자 .strongsnt 가 Strong 번호.
+        #   .translit         — 음역
+        #   .greek / .hebrew  — 원어
+        #   .eng              — 영어 의미
+        #   .strongsnt        — 숫자(Strong), "[e]", 그리고 품사코드가 섞여 있음.
         words: list[dict[str, str]] = []
 
         def text(el) -> str:
             return re.sub(r"\s+", " ", el.get_text(" ", strip=True)) if el else ""
 
-        for tf in soup.select("table.tablefloat"):
+        for tf in soup.select("table.tablefloat, table.tablefloatheb"):
             td = tf.find("td")
             if td is None:
                 continue
-            pos = td.select_one("span.pos")
             translit = td.select_one("span.translit")
             original = td.select_one("span.greek, span.hebrew")
             eng = td.select_one("span.eng")
-            # 품사 span (두 번째 strongsnt, [e] 가 아닌 것)
+
+            # Strong 번호: 그리스어는 .pos, 히브리어는 첫 숫자 .strongsnt.
+            strong = text(td.select_one("span.pos"))
             grammar = ""
             for s in td.select("span.strongsnt"):
                 t = text(s)
-                if t and t != "[e]" and not t.isdigit():
-                    grammar = t
-                    break
+                if not t or t == "[e]":
+                    continue
+                if t.isdigit():
+                    if not strong:
+                        strong = t
+                elif not grammar:
+                    grammar = t  # 품사코드 (예: V-Qal-Perf-3ms, Adv)
             if not (original or translit):
                 continue
             english = text(eng)
             if grammar:
                 english = f"{english} ({grammar})" if english else grammar
             words.append({
-                "strong": text(pos),
+                "strong": strong,
                 "original": text(original),
                 "translit": text(translit),
                 "english": english,
@@ -628,7 +634,9 @@ class CrossBibleFetcher:
         import json
         cached = self.storage.get_blob("interlinear", book_en, chapter, verse)
         if cached is not None:
-            return json.loads(cached)
+            words = json.loads(cached)
+            if words:  # 빈 캐시는 옛 파싱 실패(예: 히브리어 미지원) → 다시 받는다
+                return words
         self._throttle()
         words = self.interlinear.fetch(book_en, chapter, verse)
         self.storage.put_blob("interlinear", book_en, chapter, verse, json.dumps(words, ensure_ascii=False))

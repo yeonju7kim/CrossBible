@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,11 +51,23 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from bible_books import book_chapters, book_names_en, book_names_ko
+from bible_books import BOOKS, book_chapters, book_names_en, book_names_ko
 from fetchers import BIBLEHUB_BOOK_SLUGS, CrossBibleFetcher
 from ref_parser import parse_references, resolve_book
 from reference import Reference
 from storage import Storage
+
+# 신약 책들(마태복음~요한계시록) — Strong's 가 그리스어인지 히브리어인지 구분.
+_NT_BOOKS = {b[0] for b in BOOKS[39:]}
+
+
+def _strong_url(book_en: str, strong_text: str) -> str | None:
+    """원어 표의 Strong 번호 → BibleHub Strong's URL. 예) 2424 → /strongs/greek/2424.htm"""
+    m = re.search(r"\d+[a-zA-Z]?", strong_text or "")
+    if not m:
+        return None
+    lang = "greek" if book_en in _NT_BOOKS else "hebrew"
+    return f"https://biblehub.com/strongs/{lang}/{m.group()}.htm"
 
 
 # ---------- i18n ----------
@@ -161,6 +174,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "interlinear.col_translit": "음역",
         "interlinear.col_english": "영어",
         "interlinear.error": "오류",
+        "interlinear.dblclick_tooltip": "단어를 더블클릭하면 BibleHub Strong's 페이지가 열립니다.",
         "biblehub.label": "BibleHub:",
         "biblehub.compare": "본문 비교",
         "biblehub.interlinear": "원어",
@@ -367,6 +381,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "interlinear.col_translit": "Translit",
         "interlinear.col_english": "English",
         "interlinear.error": "Error",
+        "interlinear.dblclick_tooltip": "Double-click a word to open its BibleHub Strong's page.",
         "biblehub.label": "BibleHub:",
         "biblehub.compare": "compare",
         "biblehub.interlinear": "interlinear",
@@ -1329,8 +1344,9 @@ def _hline() -> QFrame:
 
 
 class InterlinearTable(QTableWidget):
-    def __init__(self):
+    def __init__(self, book_en: str = ""):
         super().__init__(0, 4)
+        self._book_en = book_en
         self.setHorizontalHeaderLabels([
             tr("interlinear.col_strong"),
             tr("interlinear.col_original"),
@@ -1344,6 +1360,17 @@ class InterlinearTable(QTableWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setToolTip(tr("interlinear.dblclick_tooltip"))
+        # 더블클릭 → 그 단어의 Strong 번호로 BibleHub Strong's 페이지 열기
+        self.cellDoubleClicked.connect(self._open_strong)
+
+    def _open_strong(self, row: int, _col: int):
+        item = self.item(row, 0)  # Strong 번호는 0번 열
+        if item is None:
+            return
+        url = _strong_url(self._book_en, item.text())
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
 
     def set_loading(self):
         self.setRowCount(1)
@@ -1448,7 +1475,7 @@ class VerseBlock(QWidget):
 
     def _build_body(self):
         self._body_layout.addWidget(_section_label(tr("verse.interlinear_section"), level=2))
-        self.interlinear = InterlinearTable()
+        self.interlinear = InterlinearTable(self.ref.book_en)
         self._body_layout.addWidget(self.interlinear)
 
         self._body_layout.addWidget(_section_label(tr("verse.commentary_section"), level=2))
