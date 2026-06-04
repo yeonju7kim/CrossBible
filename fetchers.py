@@ -661,23 +661,29 @@ class CrossBibleFetcher:
 
     # ---- 본문 ----
 
-    def get_whole_chapter(self, translation: str, book_en: str, chapter: int) -> list[tuple[int, str]]:
-        """장 전체 조회. 캐시에 있으면 그대로, 없으면 챕터 단위로 받아 캐시."""
-        cached = self.storage.get_chapter_verses(translation, book_en, chapter)
-        if cached:
-            return cached
+    def get_whole_chapter(self, translation: str, book_en: str, chapter: int,
+                          force: bool = False) -> list[tuple[int, str]]:
+        """장 전체 조회. 캐시에 있으면 그대로, 없으면 챕터 단위로 받아 캐시.
+
+        force=True 면 캐시를 무시하고 다시 받아 덮어쓴다 (오래되거나 누락된 장 갱신).
+        """
+        if not force:
+            cached = self.storage.get_chapter_verses(translation, book_en, chapter)
+            if cached:
+                return cached
         self._throttle()
         verses = self.fetch_chapter(translation, book_en, chapter)
         if verses:
             self.storage.put_verses(translation, book_en, chapter, verses)
         return verses
 
-    def get_verses(self, translation: str, ref: Reference) -> list[tuple[int, str]]:
+    def get_verses(self, translation: str, ref: Reference, force: bool = False) -> list[tuple[int, str]]:
         if ref.whole_chapter:
-            return self.get_whole_chapter(translation, ref.book_en, ref.chapter)
-        cached = self.storage.get_verses(translation, ref)
-        if cached is not None:
-            return cached
+            return self.get_whole_chapter(translation, ref.book_en, ref.chapter, force=force)
+        if not force:
+            cached = self.storage.get_verses(translation, ref)
+            if cached is not None:
+                return cached
         self._throttle()
         if translation == "GAE":
             verses = self.bsk.fetch(ref, "GAE")

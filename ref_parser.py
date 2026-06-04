@@ -25,7 +25,8 @@ from reference import Reference
 
 
 # 토큰: 맨 끝의 "장:절[-절2]" 또는 "장" 을 기준으로 앞부분을 책 이름으로 본다.
-_RANGE_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)\s*:\s*(?P<v1>\d+)(?:\s*-\s*(?P<v2>\d+))?$")
+# 장:절 구분자는 콜론(:) 과 점(.) 모두 허용 ("Ecc 1:3" == "Ecc 1.3").
+_RANGE_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)\s*[.:]\s*(?P<v1>\d+)(?:\s*-\s*(?P<v2>\d+))?$")
 _CHAPTER_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)$")
 
 
@@ -36,7 +37,7 @@ def _normalize(text: str) -> str:
 
 def resolve_book(name: str) -> tuple[str, str] | None:
     """책 이름(영/한, 약어, 접두사) → (영문 정식명, 한글 정식명). 못 찾으면 None."""
-    raw = name.strip()
+    raw = name.strip().rstrip(". ")  # 약어 뒤 마침표 허용 ("Ecc." → "Ecc")
     if not raw:
         return None
     low = raw.lower()

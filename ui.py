@@ -1,6 +1,7 @@
 """PyQt6 메인 윈도우 — 메뉴바, i18n, 테마, 오프라인 다운로드."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -77,6 +79,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.whole_tooltip": "장 전체를 조회합니다 (절 범위 무시).",
         "selector.add": "＋ 추가",
         "selector.add_tooltip": "현재 화면에 이 구절을 덧붙입니다.",
+        "selector.refresh": "↻ 새로고침",
+        "selector.refresh_tooltip": "현재 화면의 구절을 캐시 무시하고 다시 가져옵니다 (오래되거나 누락된 본문 갱신).",
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
@@ -88,6 +92,29 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.error_body": "다음 구절은 해석하지 못했습니다:\n{tokens}",
         "parse.none_title": "구절 없음",
         "parse.none_body": "조회할 구절을 입력하세요.",
+        "parse.problem_title": "구절 입력 확인",
+        "parse.problem_unparsed": "해석하지 못한 구절: {tokens}",
+        "parse.problem_too_big": "한 번에 20절을 넘어 제외함: {tokens}",
+        "passage.remove_tooltip": "이 구절을 화면에서 제거",
+        "menu.library": "라이브러리",
+        "library.save": "현재 구절 저장…",
+        "library.open": "불러오기 / 관리…",
+        "library.save_title": "라이브러리에 저장",
+        "library.save_label": "이 구절 모음의 이름:",
+        "library.save_empty": "화면에 저장할 구절이 없습니다.",
+        "library.saved": "'{name}' 저장됨 ({count}개 구절).",
+        "library.dialog_title": "라이브러리",
+        "library.intro": "저장한 구절 모음을 불러오거나 관리합니다. 더블클릭하면 불러옵니다.",
+        "library.empty": "저장된 모음이 없습니다. 먼저 라이브러리 → 현재 구절 저장… 을 사용하세요.",
+        "library.col_name": "이름",
+        "library.col_count": "구절 수",
+        "library.col_updated": "수정",
+        "library.load_replace": "불러오기 (교체)",
+        "library.load_add": "현재에 추가",
+        "library.delete": "삭제",
+        "library.close": "닫기",
+        "library.delete_confirm_title": "모음 삭제",
+        "library.delete_confirm_body": "'{name}' 모음을 삭제할까요? (본문 캐시는 지워지지 않습니다)",
         "filter.show_translations": "표시할 번역:",
         "filter.interleave": "번갈아보기",
         "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
@@ -232,6 +259,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.whole_tooltip": "Look up the whole chapter (ignores the verse range).",
         "selector.add": "＋ Add",
         "selector.add_tooltip": "Append this passage to the current view.",
+        "selector.refresh": "↻ Refresh",
+        "selector.refresh_tooltip": "Re-fetch the current passages ignoring the cache (refresh stale or missing text).",
         "selector.side_on": "Original / Commentary / Notes",
         "selector.side_off": "Original / Commentary / Notes (off)",
         "selector.side_tooltip": "F9: toggle the right panel",
@@ -243,6 +272,29 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.error_body": "Could not parse these references:\n{tokens}",
         "parse.none_title": "No reference",
         "parse.none_body": "Enter a reference to look up.",
+        "parse.problem_title": "Check your references",
+        "parse.problem_unparsed": "Could not parse: {tokens}",
+        "parse.problem_too_big": "Skipped (over 20 verses at once): {tokens}",
+        "passage.remove_tooltip": "Remove this passage from the view",
+        "menu.library": "Library",
+        "library.save": "Save current passages…",
+        "library.open": "Open / manage…",
+        "library.save_title": "Save to library",
+        "library.save_label": "Name for this passage set:",
+        "library.save_empty": "No passages on screen to save.",
+        "library.saved": "Saved '{name}' ({count} passages).",
+        "library.dialog_title": "Library",
+        "library.intro": "Load or manage your saved passage sets. Double-click to load.",
+        "library.empty": "No saved sets yet. Use Library → Save current passages… first.",
+        "library.col_name": "Name",
+        "library.col_count": "Passages",
+        "library.col_updated": "Updated",
+        "library.load_replace": "Load (replace)",
+        "library.load_add": "Add to current",
+        "library.delete": "Delete",
+        "library.close": "Close",
+        "library.delete_confirm_title": "Delete set",
+        "library.delete_confirm_body": "Delete the set '{name}'? (verse cache is not removed)",
         "filter.show_translations": "Show translations:",
         "filter.interleave": "Interleave",
         "filter.interleave_tooltip": "Group translations per verse.",
@@ -389,6 +441,44 @@ def tr(key: str, **kwargs) -> str:
         except Exception:
             return value
     return value
+
+
+# ---------- 라이브러리 직렬화 ----------
+
+def _ref_to_dict(r: Reference) -> dict:
+    return {
+        "book_en": r.book_en,
+        "book_ko": r.book_ko,
+        "chapter": r.chapter,
+        "vs": r.verse_start,
+        "ve": r.verse_end,
+        "whole": r.whole_chapter,
+    }
+
+
+def _ref_from_dict(d: dict) -> Reference:
+    return Reference(
+        d["book_en"], d["book_ko"], int(d["chapter"]),
+        int(d["vs"]), int(d["ve"]), bool(d.get("whole", False)),
+    )
+
+
+def serialize_refs(refs: list[Reference]) -> str:
+    return json.dumps([_ref_to_dict(r) for r in refs], ensure_ascii=False)
+
+
+def deserialize_refs(payload: str) -> list[Reference]:
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return []
+    out: list[Reference] = []
+    for d in data:
+        try:
+            out.append(_ref_from_dict(d))
+        except Exception:
+            continue
+    return out
 
 
 # ---------- BibleHub 링크 ----------
@@ -862,6 +952,115 @@ class SearchDialog(QDialog):
         self.verse_selected.emit(book_en, int(chapter), int(verse))
 
 
+class LibraryDialog(QDialog):
+    """저장된 구절 모음 불러오기/추가/삭제."""
+
+    load_replace = pyqtSignal(list)  # list[Reference]
+    load_add = pyqtSignal(list)
+
+    def __init__(self, storage: Storage, parent=None):
+        super().__init__(parent)
+        self.storage = storage
+        self.setWindowTitle(tr("library.dialog_title"))
+        self.resize(560, 420)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+
+        intro = QLabel(tr("library.intro"))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#888;")
+        v.addWidget(intro)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([
+            tr("library.col_name"),
+            tr("library.col_count"),
+            tr("library.col_updated"),
+        ])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(lambda _i: self._load(replace=True))
+        v.addWidget(self.table, 1)
+
+        self.empty_label = QLabel(tr("library.empty"))
+        self.empty_label.setStyleSheet("color:#888;")
+        self.empty_label.setWordWrap(True)
+        v.addWidget(self.empty_label)
+
+        btn_row = QHBoxLayout()
+        self.load_btn = QPushButton(tr("library.load_replace"))
+        self.load_btn.clicked.connect(lambda: self._load(replace=True))
+        self.add_btn = QPushButton(tr("library.load_add"))
+        self.add_btn.clicked.connect(lambda: self._load(replace=False))
+        self.delete_btn = QPushButton(tr("library.delete"))
+        self.delete_btn.clicked.connect(self._delete)
+        close_btn = QPushButton(tr("library.close"))
+        close_btn.clicked.connect(self.reject)
+        btn_row.addWidget(self.load_btn)
+        btn_row.addWidget(self.add_btn)
+        btn_row.addWidget(self.delete_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(close_btn)
+        v.addLayout(btn_row)
+
+        self.refresh()
+
+    def refresh(self):
+        rows = self.storage.list_collections()
+        self.table.setRowCount(len(rows))
+        for i, (name, updated) in enumerate(rows):
+            payload = self.storage.load_collection(name) or "[]"
+            count = len(deserialize_refs(payload))
+            name_item = QTableWidgetItem(name)
+            name_item.setData(Qt.ItemDataRole.UserRole, name)
+            self.table.setItem(i, 0, name_item)
+            self.table.setItem(i, 1, QTableWidgetItem(str(count)))
+            self.table.setItem(i, 2, QTableWidgetItem(updated))
+        self.table.resizeColumnToContents(0)
+        self.table.resizeColumnToContents(1)
+        has = len(rows) > 0
+        self.empty_label.setVisible(not has)
+        self.table.setVisible(has)
+        for b in (self.load_btn, self.add_btn, self.delete_btn):
+            b.setEnabled(has)
+
+    def _selected_name(self) -> str | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _load(self, replace: bool):
+        name = self._selected_name()
+        if name is None:
+            return
+        refs = deserialize_refs(self.storage.load_collection(name) or "[]")
+        if not refs:
+            return
+        (self.load_replace if replace else self.load_add).emit(refs)
+        self.accept()
+
+    def _delete(self):
+        name = self._selected_name()
+        if name is None:
+            return
+        confirm = QMessageBox.question(
+            self,
+            tr("library.delete_confirm_title"),
+            tr("library.delete_confirm_body", name=name),
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        self.storage.delete_collection(name)
+        self.refresh()
+
+
 class VersesWorker(QObject):
     """여러 passage × 번역본의 '본문'만 가져온다. 원어/주석은 지연 로딩이라 여기서 안 받음."""
 
@@ -869,11 +1068,13 @@ class VersesWorker(QObject):
     error = pyqtSignal(int, str, str)           # passage_index, translation, message
     finished = pyqtSignal()
 
-    def __init__(self, fetcher: CrossBibleFetcher, passages: list[Reference], translations: list[str]):
+    def __init__(self, fetcher: CrossBibleFetcher, passages: list[Reference],
+                 translations: list[str], force: bool = False):
         super().__init__()
         self.fetcher = fetcher
         self.passages = passages
         self.translations = translations
+        self.force = force
         self._cancel = False
 
     def cancel(self):
@@ -886,7 +1087,7 @@ class VersesWorker(QObject):
                     self.finished.emit()
                     return
                 try:
-                    verses = self.fetcher.get_verses(t, ref)
+                    verses = self.fetcher.get_verses(t, ref, force=self.force)
                     self.verses_ready.emit(pi, t, verses)
                 except Exception as e:
                     self.error.emit(pi, t, str(e))
@@ -1257,6 +1458,15 @@ class MainWindow(QMainWindow):
         import_action.triggered.connect(self._on_import_db)
         tools_menu.addAction(import_action)
 
+        library_menu = bar.addMenu(tr("menu.library"))
+        lib_save_action = QAction(tr("library.save"), self)
+        lib_save_action.triggered.connect(self._on_library_save)
+        library_menu.addAction(lib_save_action)
+        lib_open_action = QAction(tr("library.open"), self)
+        lib_open_action.triggered.connect(self._on_library_open)
+        library_menu.addAction(lib_open_action)
+        self._library_dialog: LibraryDialog | None = None
+
         help_menu = bar.addMenu(tr("menu.help"))
         feedback_action = QAction(tr("menu.feedback"), self)
         feedback_action.triggered.connect(self._on_open_feedback)
@@ -1340,6 +1550,11 @@ class MainWindow(QMainWindow):
         self.add_btn.setToolTip(tr("selector.add_tooltip"))
         self.add_btn.clicked.connect(self._on_add)
         row.addWidget(self.add_btn)
+
+        self.refresh_btn = QPushButton(tr("selector.refresh"))
+        self.refresh_btn.setToolTip(tr("selector.refresh_tooltip"))
+        self.refresh_btn.clicked.connect(self._on_refresh)
+        row.addWidget(self.refresh_btn)
 
         row.addStretch(1)
 
@@ -1457,12 +1672,15 @@ class MainWindow(QMainWindow):
                 w.deleteLater()
         self._side_built = set()
 
-    def _start_view(self, passages: list[Reference]):
-        # 진행 중 본문 워커는 기다리지 않고 분리 (UI 멈춤 방지)
+    def _start_view(self, passages: list[Reference], force: bool = False):
+        # 진행 중 본문 워커는 기다리지 않고 분리한다. blockSignals 만으로는 '이미 큐에
+        # 쌓인' 신호가 그대로 전달돼 옛 결과가 새 화면을 오염시킨다(중복 조회 시 본문이
+        # 뒤섞이는 원인). 그래서 연결 자체를 끊어 stale 결과를 확실히 버린다.
         if self._thread is not None:
             try:
                 if self._worker is not None:
                     self._worker.cancel()
+                    self._worker.disconnect()
                     self._worker.blockSignals(True)
                 self._thread.quit()
             except Exception:
@@ -1470,7 +1688,9 @@ class MainWindow(QMainWindow):
             self._worker = None
             self._thread = None
 
-        self._passages = list(passages)
+        # 같은 구절 중복 제거 (＋추가 를 여러 번 눌러도 한 번만 — Reference 는 frozen
+        # dataclass 라 값이 같으면 동일 키). 순서는 유지.
+        self._passages = list(dict.fromkeys(passages))
         self._verse_data = {}
         self._verse_errors = {}
         self._passage_verses = {}
@@ -1501,7 +1721,7 @@ class MainWindow(QMainWindow):
 
         enabled = self._enabled_translations()
         self._thread = QThread(self)
-        self._worker = VersesWorker(self.fetcher, self._passages, enabled)
+        self._worker = VersesWorker(self.fetcher, self._passages, enabled, force=force)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.verses_ready.connect(self._on_verses_ready)
@@ -1544,7 +1764,16 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(box)
         lay.setContentsMargins(8, 10, 8, 6)
         lay.setSpacing(4)
-        lay.addWidget(_section_label(f"{ref.header_ko}  ({ref.header_en})", level=1))
+
+        header = QHBoxLayout()
+        header.addWidget(_section_label(f"{ref.header_ko}  ({ref.header_en})", level=1))
+        header.addStretch(1)
+        rm = QPushButton("✕")
+        rm.setFixedSize(26, 24)
+        rm.setToolTip(tr("passage.remove_tooltip"))
+        rm.clicked.connect(lambda _c=False, p=pi: self._remove_passage(p))
+        header.addWidget(rm)
+        lay.addLayout(header)
 
         if self.interleave_check.isChecked():
             verses = self._passage_verse_set(pi, enabled, ref)
@@ -1727,6 +1956,46 @@ class MainWindow(QMainWindow):
             return
         self._start_view(self._passages + [ref])
 
+    def _on_refresh(self):
+        # 현재 화면의 구절을 캐시 무시하고 다시 가져온다 (오래되거나 누락된 본문 갱신).
+        if self._passages:
+            self._start_view(self._passages, force=True)
+
+    def _remove_passage(self, pi: int):
+        if 0 <= pi < len(self._passages):
+            self._start_view(self._passages[:pi] + self._passages[pi + 1:])
+
+    # ---- 라이브러리 ----
+
+    def _on_library_save(self):
+        if not self._passages:
+            QMessageBox.information(self, tr("library.save_title"), tr("library.save_empty"))
+            return
+        name, ok = QInputDialog.getText(self, tr("library.save_title"), tr("library.save_label"))
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            return
+        self.storage.save_collection(name, serialize_refs(self._passages))
+        if self._library_dialog is not None:
+            self._library_dialog.refresh()
+        self.statusBar().showMessage(
+            tr("library.saved", name=name, count=len(self._passages)), 4000
+        )
+
+    def _on_library_open(self):
+        if self._library_dialog is None:
+            self._library_dialog = LibraryDialog(self.storage, self)
+            self._library_dialog.load_replace.connect(self._start_view)
+            self._library_dialog.load_add.connect(
+                lambda refs: self._start_view(self._passages + refs)
+            )
+        self._library_dialog.refresh()
+        self._library_dialog.show()
+        self._library_dialog.raise_()
+        self._library_dialog.activateWindow()
+
     def _parse_multi(self) -> list[Reference] | None:
         text = self.multi_edit.text().strip()
         if not text:
@@ -1734,24 +2003,20 @@ class MainWindow(QMainWindow):
             return None
         refs, errors = parse_references(text)
         valid: list[Reference] = []
-        too_big = False
+        too_big: list[str] = []
         for r in refs:
             if not r.whole_chapter and r.verse_end - r.verse_start + 1 > 20:
-                too_big = True
+                too_big.append(r.header_en)
             else:
                 valid.append(r)
+        # 문제를 모아서 모달 하나로만 안내 (여러 팝업이 연달아 뜨지 않게)
+        problems: list[str] = []
         if errors:
-            QMessageBox.warning(
-                self,
-                tr("parse.error_title"),
-                tr("parse.error_body", tokens="\n".join(errors)),
-            )
+            problems.append(tr("parse.problem_unparsed", tokens=", ".join(errors)))
         if too_big:
-            QMessageBox.warning(
-                self,
-                tr("lookup.range_too_big_title"),
-                tr("lookup.range_too_big_body"),
-            )
+            problems.append(tr("parse.problem_too_big", tokens=", ".join(too_big)))
+        if problems:
+            QMessageBox.warning(self, tr("parse.problem_title"), "\n\n".join(problems))
         return valid
 
     def _on_multi_lookup(self):
