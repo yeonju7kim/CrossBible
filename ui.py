@@ -1,6 +1,8 @@
 """PyQt6 메인 윈도우 — 메뉴바, i18n, 테마, 오프라인 다운로드."""
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QSettings, Qt, QThread, QTimer, pyqtSignal
@@ -26,6 +28,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -47,8 +50,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from bible_books import book_names_ko, lookup_by_ko
+from bible_books import book_chapters, book_names_en, book_names_ko
 from fetchers import BIBLEHUB_BOOK_SLUGS, CrossBibleFetcher
+from ref_parser import parse_references, resolve_book
 from reference import Reference
 from storage import Storage
 
@@ -65,17 +69,68 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.ready": "준비됨",
         "status.done": "완료",
         "status.looking_up": "{ref_ko} ({ref_en}) 조회 중…",
-        "status.extras_progress": "원어/주석 {done}/{total} 처리 중…",
         "status.min_one_translation": "번역본을 최소 하나는 켜두세요.",
         "selector.book": "책",
         "selector.chapter": "장",
         "selector.verse": "절",
         "selector.range_sep": "~",
         "selector.lookup": "조회 (Ctrl+Enter)",
+        "selector.whole": "전체",
+        "selector.whole_tooltip": "장 전체를 조회합니다 (절 범위 무시).",
+        "selector.add": "＋ 추가",
+        "selector.add_tooltip": "맨 왼쪽 패널에 이 구절을 쌓습니다.",
+        "selector.new_panel": "＋ 새 패널",
+        "selector.new_panel_tooltip": "빈 패널을 추가합니다. ◀ ▶ 로 구절을 옮겨올 수 있어요.",
+        "selector.refresh": "↻ 새로고침",
+        "selector.refresh_tooltip": "현재 화면의 구절을 캐시 무시하고 다시 가져옵니다 (오래되거나 누락된 본문 갱신).",
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
+        "multi.placeholder": "여러 구절: Acts 12:12, 12:25, Exodus 6, 15:37-40, Col 4:10 …",
+        "multi.lookup": "조회",
+        "multi.add": "＋ 추가",
+        "multi.tooltip": "쉼표로 구분. 'Exodus 6' 처럼 장만 쓰면 그 장 전체. 책 생략 시 앞 구절의 책을 이어 씁니다. 예) Acts 12:12, 12:25, 13:5",
+        "parse.none_title": "구절 없음",
+        "parse.none_body": "조회할 구절을 입력하세요.",
+        "parse.problem_title": "구절 입력 확인",
+        "parse.problem_unparsed": "해석하지 못한 구절: {tokens}",
+        "passage.remove_tooltip": "이 구절 제거",
+        "passage.split_tooltip": "이 구절을 위/아래 둘로 나누기",
+        "block.move_left": "왼쪽 패널로 옮기기",
+        "block.move_right": "오른쪽 패널로 옮기기",
+        "block.move_up": "위로 (패널 안 순서)",
+        "block.move_down": "아래로 (패널 안 순서)",
+        "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
+        "panel.remove_tooltip": "이 패널 삭제 (구절 포함)",
+        "passage.max_title": "패널 한도",
+        "passage.max_body": "패널은 최대 {n}개까지예요.",
+        "passage.max_reached": "패널은 최대 {n}개 — 처음 {n}개만 표시합니다.",
+        "split.title": "패널 나누기",
+        "split.label": "{lo}~{hi} 중, 어느 절 뒤에서 나눌까요?",
+        "split.need_text": "본문을 받은 뒤에 나눌 수 있어요. 잠시 후 다시 시도해 주세요.",
+        "split.too_small": "한 절짜리는 나눌 수 없어요.",
+        "menu.library": "라이브러리",
+        "library.save": "현재 구절 저장…",
+        "library.open": "불러오기 / 관리…",
+        "library.save_title": "라이브러리에 저장",
+        "library.save_label": "이 구절 모음의 이름:",
+        "library.save_empty": "화면에 저장할 구절이 없습니다.",
+        "library.saved": "'{name}' 저장됨 ({count}개 구절).",
+        "library.dialog_title": "라이브러리",
+        "library.intro": "저장한 구절 모음을 불러오거나 관리합니다. 더블클릭하면 불러옵니다.",
+        "library.empty": "저장된 모음이 없습니다. 먼저 라이브러리 → 현재 구절 저장… 을 사용하세요.",
+        "library.col_name": "이름",
+        "library.col_count": "구절 수",
+        "library.col_updated": "수정",
+        "library.load_replace": "불러오기 (교체)",
+        "library.load_add": "현재에 추가",
+        "library.delete": "삭제",
+        "library.close": "닫기",
+        "library.delete_confirm_title": "모음 삭제",
+        "library.delete_confirm_body": "'{name}' 모음을 삭제할까요? (본문 캐시는 지워지지 않습니다)",
         "filter.show_translations": "표시할 번역:",
+        "filter.interleave": "번갈아보기",
+        "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
         "verse.interlinear_section": "원어 (BibleHub Interlinear)",
         "verse.commentary_section": "주석 (BibleHub Commentaries)",
         "verse.note_section": "메모",
@@ -94,9 +149,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "biblehub.interlinear": "원어",
         "biblehub.commentary": "주석",
         "biblehub.lexicon": "렉시콘",
-        "lookup.range_too_big_title": "범위 큼",
-        "lookup.range_too_big_body": "한 번에 20절 이하로 조회해 주세요.",
         "menu.settings": "설정",
+        "menu.new_window": "새 창 (Ctrl+N)",
         "menu.tools": "도구",
         "menu.theme": "테마",
         "menu.language": "언어",
@@ -114,7 +168,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "결과 없음",
         "search.too_many": "{n}건 (처음 {limit}건만 표시)",
         "search.empty_cache": "캐시가 비어 있습니다. 도구 → 성경 다운로드… 로 본문을 먼저 받으세요.",
-        "search.jump_hint": "두 번 클릭하면 그 절로 이동합니다.",
+        "search.jump_hint": "더블클릭하면 맨 왼쪽 패널에 추가됩니다.",
         "menu.help": "도움말",
         "menu.feedback": "건의사항 · 이슈 보내기…",
         "menu.about": "버전 정보…",
@@ -204,17 +258,68 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.ready": "Ready",
         "status.done": "Done",
         "status.looking_up": "Looking up {ref_ko} ({ref_en})…",
-        "status.extras_progress": "Original / commentary {done}/{total}…",
         "status.min_one_translation": "Keep at least one translation enabled.",
         "selector.book": "Book",
         "selector.chapter": "Chap",
         "selector.verse": "Verse",
         "selector.range_sep": "~",
         "selector.lookup": "Look up (Ctrl+Enter)",
+        "selector.whole": "Whole",
+        "selector.whole_tooltip": "Look up the whole chapter (ignores the verse range).",
+        "selector.add": "＋ Add",
+        "selector.add_tooltip": "Stack this passage onto the leftmost panel.",
+        "selector.new_panel": "＋ New panel",
+        "selector.new_panel_tooltip": "Add an empty panel. Move blocks into it with ◀ ▶.",
+        "selector.refresh": "↻ Refresh",
+        "selector.refresh_tooltip": "Re-fetch the current passages ignoring the cache (refresh stale or missing text).",
         "selector.side_on": "Original / Commentary / Notes",
         "selector.side_off": "Original / Commentary / Notes (off)",
         "selector.side_tooltip": "F9: toggle the right panel",
+        "multi.placeholder": "Multiple refs: Acts 12:12, 12:25, Exodus 6, 15:37-40, Col 4:10 …",
+        "multi.lookup": "Look up",
+        "multi.add": "＋ Add",
+        "multi.tooltip": "Comma-separated. 'Exodus 6' (chapter only) = whole chapter. Omit the book to carry over the previous one.",
+        "parse.none_title": "No reference",
+        "parse.none_body": "Enter a reference to look up.",
+        "parse.problem_title": "Check your references",
+        "parse.problem_unparsed": "Could not parse: {tokens}",
+        "passage.remove_tooltip": "Remove this passage",
+        "passage.split_tooltip": "Split this passage into top/bottom",
+        "block.move_left": "Move to the left panel",
+        "block.move_right": "Move to the right panel",
+        "block.move_up": "Move up (within panel)",
+        "block.move_down": "Move down (within panel)",
+        "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
+        "panel.remove_tooltip": "Delete this panel (with its passages)",
+        "passage.max_title": "Panel limit",
+        "passage.max_body": "At most {n} panels.",
+        "passage.max_reached": "Max {n} panels — showing the first {n}.",
+        "split.title": "Split panel",
+        "split.label": "Split after which verse? (range {lo}-{hi})",
+        "split.need_text": "You can split once the text has loaded. Try again shortly.",
+        "split.too_small": "A single verse can't be split.",
+        "menu.library": "Library",
+        "library.save": "Save current passages…",
+        "library.open": "Open / manage…",
+        "library.save_title": "Save to library",
+        "library.save_label": "Name for this passage set:",
+        "library.save_empty": "No passages on screen to save.",
+        "library.saved": "Saved '{name}' ({count} passages).",
+        "library.dialog_title": "Library",
+        "library.intro": "Load or manage your saved passage sets. Double-click to load.",
+        "library.empty": "No saved sets yet. Use Library → Save current passages… first.",
+        "library.col_name": "Name",
+        "library.col_count": "Passages",
+        "library.col_updated": "Updated",
+        "library.load_replace": "Load (replace)",
+        "library.load_add": "Add to current",
+        "library.delete": "Delete",
+        "library.close": "Close",
+        "library.delete_confirm_title": "Delete set",
+        "library.delete_confirm_body": "Delete the set '{name}'? (verse cache is not removed)",
         "filter.show_translations": "Show translations:",
+        "filter.interleave": "Interleave",
+        "filter.interleave_tooltip": "Group translations per verse.",
         "verse.interlinear_section": "Original (BibleHub Interlinear)",
         "verse.commentary_section": "Commentary (BibleHub Commentaries)",
         "verse.note_section": "Notes",
@@ -233,9 +338,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "biblehub.interlinear": "interlinear",
         "biblehub.commentary": "commentary",
         "biblehub.lexicon": "lexicon",
-        "lookup.range_too_big_title": "Range too big",
-        "lookup.range_too_big_body": "Please look up at most 20 verses at a time.",
         "menu.settings": "Settings",
+        "menu.new_window": "New window (Ctrl+N)",
         "menu.tools": "Tools",
         "menu.theme": "Theme",
         "menu.language": "Language",
@@ -253,7 +357,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "No results",
         "search.too_many": "{n} matches (showing first {limit})",
         "search.empty_cache": "Cache is empty. Run Tools → Download Bible first.",
-        "search.jump_hint": "Double-click a row to jump to that verse.",
+        "search.jump_hint": "Double-click a row to add it to the leftmost panel.",
         "menu.help": "Help",
         "menu.feedback": "Send feedback / open an issue…",
         "menu.about": "About…",
@@ -356,6 +460,77 @@ def tr(key: str, **kwargs) -> str:
         except Exception:
             return value
     return value
+
+
+# 현재 UI 언어에 맞는 책 이름 / 성구 헤더 (영어면 영문, 아니면 한글).
+
+def _book_name(book_en: str, book_ko: str) -> str:
+    return book_en if _CURRENT_LANG == "en" else book_ko
+
+
+def _ref_header(ref: Reference) -> str:
+    return ref.header_en if _CURRENT_LANG == "en" else ref.header_ko
+
+
+# ---------- 패널 모델 ----------
+
+@dataclass
+class Panel:
+    """세로 구절 묶음. blocks 는 위→아래 구절 순서, interleave 는 패널별 번갈아보기."""
+    blocks: list[Reference] = field(default_factory=list)
+    interleave: bool = False
+
+
+# ---------- 라이브러리 직렬화 ----------
+
+def _ref_to_dict(r: Reference) -> dict:
+    return {
+        "book_en": r.book_en,
+        "book_ko": r.book_ko,
+        "chapter": r.chapter,
+        "vs": r.verse_start,
+        "ve": r.verse_end,
+        "whole": r.whole_chapter,
+    }
+
+
+def _ref_from_dict(d: dict) -> Reference:
+    return Reference(
+        d["book_en"], d["book_ko"], int(d["chapter"]),
+        int(d["vs"]), int(d["ve"]), bool(d.get("whole", False)),
+    )
+
+
+def serialize_panels(panels: list[Panel]) -> str:
+    return json.dumps(
+        [{"interleave": p.interleave, "blocks": [_ref_to_dict(r) for r in p.blocks]}
+         for p in panels],
+        ensure_ascii=False,
+    )
+
+
+def deserialize_panels(payload: str) -> list[Panel]:
+    """패널 구조 복원. 구버전(평면 구절 리스트) 저장본은 각 구절을 패널 하나로."""
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return []
+    out: list[Panel] = []
+    for item in data:
+        if isinstance(item, dict) and "blocks" in item:  # 신버전: 패널
+            blocks = []
+            for d in item["blocks"]:
+                try:
+                    blocks.append(_ref_from_dict(d))
+                except Exception:
+                    continue
+            out.append(Panel(blocks, bool(item.get("interleave", False))))
+        else:  # 구버전: 구절 하나 → 패널 하나
+            try:
+                out.append(Panel([_ref_from_dict(item)]))
+            except Exception:
+                continue
+    return out
 
 
 # ---------- BibleHub 링크 ----------
@@ -619,8 +794,9 @@ class DownloadSelectionDialog(QDialog):
         # 66권 체크 가능 리스트
         self.book_list = QListWidget()
         self._items: list[QListWidgetItem] = []
+        ch_unit = "ch" if _CURRENT_LANG == "en" else "장"
         for en, ko, _, _, chapters in BOOKS:
-            item = QListWidgetItem(f"{ko}  ({chapters}장)")
+            item = QListWidgetItem(f"{_book_name(en, ko)}  ({chapters}{ch_unit})")
             item.setData(Qt.ItemDataRole.UserRole, en)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
@@ -786,7 +962,7 @@ class SearchDialog(QDialog):
 
         self.table.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            ref_str = f"{en_to_ko.get(r['book_en'], r['book_en'])} {r['chapter']}:{r['verse']}"
+            ref_str = f"{_book_name(r['book_en'], en_to_ko.get(r['book_en'], r['book_en']))} {r['chapter']}:{r['verse']}"
             preview = self._snippet(r["text"], query)
             ref_item = QTableWidgetItem(ref_str)
             ref_item.setData(Qt.ItemDataRole.UserRole, (r["book_en"], r["chapter"], r["verse"]))
@@ -829,47 +1005,176 @@ class SearchDialog(QDialog):
         self.verse_selected.emit(book_en, int(chapter), int(verse))
 
 
-class FetchWorker(QObject):
-    verses_ready = pyqtSignal(str, list)
-    interlinear_ready = pyqtSignal(int, list)
-    commentary_ready = pyqtSignal(int, str)
-    error = pyqtSignal(str, str)
+class LibraryDialog(QDialog):
+    """저장된 구절 모음 불러오기/추가/삭제."""
+
+    load_replace = pyqtSignal(list)  # list[Panel]
+    load_add = pyqtSignal(list)      # list[Panel]
+
+    def __init__(self, storage: Storage, parent=None):
+        super().__init__(parent)
+        self.storage = storage
+        self.setWindowTitle(tr("library.dialog_title"))
+        self.resize(560, 420)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+
+        intro = QLabel(tr("library.intro"))
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color:#888;")
+        v.addWidget(intro)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels([
+            tr("library.col_name"),
+            tr("library.col_count"),
+            tr("library.col_updated"),
+        ])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.doubleClicked.connect(lambda _i: self._load(replace=True))
+        v.addWidget(self.table, 1)
+
+        self.empty_label = QLabel(tr("library.empty"))
+        self.empty_label.setStyleSheet("color:#888;")
+        self.empty_label.setWordWrap(True)
+        v.addWidget(self.empty_label)
+
+        btn_row = QHBoxLayout()
+        self.load_btn = QPushButton(tr("library.load_replace"))
+        self.load_btn.clicked.connect(lambda: self._load(replace=True))
+        self.add_btn = QPushButton(tr("library.load_add"))
+        self.add_btn.clicked.connect(lambda: self._load(replace=False))
+        self.delete_btn = QPushButton(tr("library.delete"))
+        self.delete_btn.clicked.connect(self._delete)
+        close_btn = QPushButton(tr("library.close"))
+        close_btn.clicked.connect(self.reject)
+        btn_row.addWidget(self.load_btn)
+        btn_row.addWidget(self.add_btn)
+        btn_row.addWidget(self.delete_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(close_btn)
+        v.addLayout(btn_row)
+
+        self.refresh()
+
+    def refresh(self):
+        rows = self.storage.list_collections()
+        self.table.setRowCount(len(rows))
+        for i, (name, updated) in enumerate(rows):
+            payload = self.storage.load_collection(name) or "[]"
+            count = sum(len(p.blocks) for p in deserialize_panels(payload))
+            name_item = QTableWidgetItem(name)
+            name_item.setData(Qt.ItemDataRole.UserRole, name)
+            self.table.setItem(i, 0, name_item)
+            self.table.setItem(i, 1, QTableWidgetItem(str(count)))
+            self.table.setItem(i, 2, QTableWidgetItem(updated))
+        self.table.resizeColumnToContents(0)
+        self.table.resizeColumnToContents(1)
+        has = len(rows) > 0
+        self.empty_label.setVisible(not has)
+        self.table.setVisible(has)
+        for b in (self.load_btn, self.add_btn, self.delete_btn):
+            b.setEnabled(has)
+
+    def _selected_name(self) -> str | None:
+        row = self.table.currentRow()
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _load(self, replace: bool):
+        name = self._selected_name()
+        if name is None:
+            return
+        panels = deserialize_panels(self.storage.load_collection(name) or "[]")
+        if not panels:
+            return
+        (self.load_replace if replace else self.load_add).emit(panels)
+        self.accept()
+
+    def _delete(self):
+        name = self._selected_name()
+        if name is None:
+            return
+        confirm = QMessageBox.question(
+            self,
+            tr("library.delete_confirm_title"),
+            tr("library.delete_confirm_body", name=name),
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        self.storage.delete_collection(name)
+        self.refresh()
+
+
+class VersesWorker(QObject):
+    """필요한 (구절, 번역본) 쌍의 '본문'만 가져온다. 원어/주석은 지연 로딩.
+
+    데이터를 위치(index)가 아니라 Reference 로 식별하므로, 화면에서 순서를 바꿔도
+    이미 받은 결과는 그대로 재사용된다(재조회 불필요).
+    """
+
+    verses_ready = pyqtSignal(object, str, list)   # ref, translation, verses
+    error = pyqtSignal(object, str, str)           # ref, translation, message
     finished = pyqtSignal()
 
-    def __init__(self, fetcher: CrossBibleFetcher, ref: Reference, translations: list[str]):
+    def __init__(self, fetcher: CrossBibleFetcher,
+                 targets: list[tuple[Reference, str]], force: bool = False):
         super().__init__()
         self.fetcher = fetcher
-        self.ref = ref
-        self.translations = translations
+        self.targets = targets
+        self.force = force
         self._cancel = False
 
     def cancel(self):
         self._cancel = True
 
     def run(self):
-        for t in self.translations:
+        for ref, t in self.targets:
             if self._cancel:
-                break
+                self.finished.emit()
+                return
             try:
-                verses = self.fetcher.get_verses(t, self.ref)
-                self.verses_ready.emit(t, verses)
+                verses = self.fetcher.get_verses(t, ref, force=self.force)
+                self.verses_ready.emit(ref, t, verses)
             except Exception as e:
-                self.error.emit(t, str(e))
+                self.error.emit(ref, t, str(e))
+        self.finished.emit()
 
-        for v in self.ref.verse_numbers():
-            if self._cancel:
-                break
-            try:
-                words = self.fetcher.get_interlinear(self.ref.book_en, self.ref.chapter, v)
-                self.interlinear_ready.emit(v, words)
-            except Exception as e:
-                self.error.emit("interlinear", f"v{v}: {e}")
-            try:
-                text = self.fetcher.get_commentary(self.ref.book_en, self.ref.chapter, v)
-                self.commentary_ready.emit(v, text)
-            except Exception as e:
-                self.error.emit("commentary", f"v{v}: {e}")
 
+class ExtrasWorker(QObject):
+    """한 절의 원어(interlinear) + 주석(commentary) 을 지연 조회."""
+
+    interlinear_ready = pyqtSignal(list)
+    commentary_ready = pyqtSignal(str)
+    error = pyqtSignal(str, str)   # kind, message
+    finished = pyqtSignal()
+
+    def __init__(self, fetcher: CrossBibleFetcher, book_en: str, chapter: int, verse: int):
+        super().__init__()
+        self.fetcher = fetcher
+        self.book_en = book_en
+        self.chapter = chapter
+        self.verse = verse
+
+    def run(self):
+        try:
+            words = self.fetcher.get_interlinear(self.book_en, self.chapter, self.verse)
+            self.interlinear_ready.emit(words)
+        except Exception as e:
+            self.error.emit("interlinear", str(e))
+        try:
+            text = self.fetcher.get_commentary(self.book_en, self.chapter, self.verse)
+            self.commentary_ready.emit(text)
+        except Exception as e:
+            self.error.emit("commentary", str(e))
         self.finished.emit()
 
 
@@ -889,49 +1194,6 @@ def _hline() -> QFrame:
     line.setFrameShape(QFrame.Shape.HLine)
     line.setFrameShadow(QFrame.Shadow.Sunken)
     return line
-
-
-class TranslationPanel(QWidget):
-    def __init__(self, translation: str, label: str):
-        super().__init__()
-        self.translation = translation
-
-        v = QVBoxLayout(self)
-        v.setContentsMargins(8, 12, 8, 12)
-        v.setSpacing(6)
-
-        v.addWidget(_section_label(label, level=1))
-
-        self.body = QLabel()
-        self.body.setWordWrap(True)
-        self.body.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        self.body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        if translation in ("GAE", "KLB"):
-            f = self.body.font()
-            f.setPointSize(f.pointSize() + 1)
-            self.body.setFont(f)
-        v.addWidget(self.body)
-
-    def set_verses(self, verses: list[tuple[int, str]]):
-        lines = []
-        for n, text in verses:
-            safe = (
-                text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            )
-            lines.append(f"<p style='margin:2px 0'><b>{n}</b>&nbsp;&nbsp;{safe}</p>")
-        self.body.setText("".join(lines))
-
-    def set_error(self, message: str):
-        self.body.setText(
-            f"<p style='color:#c33'>{tr('verse.fetch_failed')}<br><small>{message}</small></p>"
-        )
-
-    def set_loading(self):
-        self.body.setText(f"<p style='color:#888'>{tr('verse.loading')}</p>")
 
 
 class InterlinearTable(QTableWidget):
@@ -986,19 +1248,35 @@ class InterlinearTable(QTableWidget):
 
 
 class VerseBlock(QWidget):
-    def __init__(self, ref: Reference, verse: int, storage: Storage):
+    """절별 원어/주석/메모 블록. 접이식 + 지연 로딩.
+
+    헤더 버튼을 펼칠 때 비로소 본체(원어 표·주석·메모)를 만들고, 그때 한 번만
+    원어/주석을 네트워크/캐시에서 가져온다. 한 장 전체(수십~수백 절)를 띄워도
+    펼치기 전에는 가벼운 헤더만 존재한다.
+    """
+
+    def __init__(self, ref: Reference, verse: int, storage: Storage, fetcher: CrossBibleFetcher):
         super().__init__()
         self.ref = ref
         self.verse = verse
         self.storage = storage
+        self.fetcher = fetcher
+        self._body_built = False
+        self._extras_loaded = False
+        self._ex_thread: QThread | None = None
+        self._ex_worker: ExtrasWorker | None = None
 
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 12, 8, 12)
-        v.setSpacing(8)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(6)
 
         header_row = QHBoxLayout()
         header_row.setSpacing(12)
-        header_row.addWidget(_section_label(f"{ref.book_ko} {ref.chapter}:{verse}", level=1))
+        self.toggle_btn = QPushButton(f"▶  {_book_name(ref.book_en, ref.book_ko)} {ref.chapter}:{verse}")
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setStyleSheet("text-align:left; font-weight:bold; border:none; padding:2px;")
+        self.toggle_btn.toggled.connect(self._on_toggled)
+        header_row.addWidget(self.toggle_btn)
         links = QLabel(_biblehub_links_html(ref.book_en, ref.chapter, verse))
         links.setTextFormat(Qt.TextFormat.RichText)
         links.setTextInteractionFlags(
@@ -1009,30 +1287,87 @@ class VerseBlock(QWidget):
         header_row.addWidget(links, 1)
         v.addLayout(header_row)
 
-        v.addWidget(_section_label(tr("verse.interlinear_section"), level=2))
-        self.interlinear = InterlinearTable()
-        v.addWidget(self.interlinear)
+        # 본체는 펼칠 때 만든다.
+        self.body = QWidget()
+        self.body.setVisible(False)
+        self._body_layout = QVBoxLayout(self.body)
+        self._body_layout.setContentsMargins(8, 0, 0, 0)
+        self._body_layout.setSpacing(6)
+        v.addWidget(self.body)
 
-        v.addWidget(_section_label(tr("verse.commentary_section"), level=2))
+        v.addWidget(_hline())
+
+    # ---- 펼치기/접기 ----
+
+    def _on_toggled(self, checked: bool):
+        self.toggle_btn.setText(
+            f"{'▼' if checked else '▶'}  {_book_name(self.ref.book_en, self.ref.book_ko)} {self.ref.chapter}:{self.verse}"
+        )
+        if checked and not self._body_built:
+            self._build_body()
+        self.body.setVisible(checked)
+        if checked and not self._extras_loaded:
+            self._load_extras()
+
+    def expand(self):
+        """프로그램적으로 펼치기 (nav 점프 시 사용)."""
+        if not self.toggle_btn.isChecked():
+            self.toggle_btn.setChecked(True)
+
+    def _build_body(self):
+        self._body_layout.addWidget(_section_label(tr("verse.interlinear_section"), level=2))
+        self.interlinear = InterlinearTable()
+        self._body_layout.addWidget(self.interlinear)
+
+        self._body_layout.addWidget(_section_label(tr("verse.commentary_section"), level=2))
         self.commentary = QTextBrowser()
         self.commentary.setOpenExternalLinks(True)
         self.commentary.setFixedHeight(360)
-        v.addWidget(self.commentary)
+        self._body_layout.addWidget(self.commentary)
 
-        v.addWidget(_section_label(tr("verse.note_section"), level=2))
+        self._body_layout.addWidget(_section_label(tr("verse.note_section"), level=2))
         self.note = QPlainTextEdit()
         self.note.setPlaceholderText(tr("verse.note_placeholder"))
         self.note.setFixedHeight(150)
-        self.note.setPlainText(storage.get_note(ref.book_en, ref.chapter, verse))
+        self.note.setPlainText(
+            self.storage.get_note(self.ref.book_en, self.ref.chapter, self.verse)
+        )
         # 키 입력마다 DB commit 하지 않고, 입력이 멈춘 뒤 한 번만 저장 (디바운스).
         self._note_timer = QTimer(self)
         self._note_timer.setSingleShot(True)
         self._note_timer.setInterval(500)
         self._note_timer.timeout.connect(self._save_note)
         self.note.textChanged.connect(self._note_timer.start)
-        v.addWidget(self.note)
+        self._body_layout.addWidget(self.note)
 
-        v.addWidget(_hline())
+        self._body_built = True
+
+    # ---- 지연 원어/주석 로딩 ----
+
+    def _load_extras(self):
+        self._extras_loaded = True
+        self.interlinear.set_loading()
+        self.commentary.setHtml(f"<p style='color:#888'>{tr('verse.loading')}</p>")
+
+        # 스레드를 블록이 아니라 최상위 윈도우에 귀속시킨다. 새 조회로 이 블록이
+        # 삭제돼도 진행 중 스레드가 함께 파괴되지 않고 스스로 끝나 정리되도록.
+        # (블록이 사라지면 워커→블록 슬롯 연결은 Qt 가 자동 해제하므로 안전)
+        self._ex_thread = QThread(self.window())
+        self._ex_worker = ExtrasWorker(self.fetcher, self.ref.book_en, self.ref.chapter, self.verse)
+        self._ex_worker.moveToThread(self._ex_thread)
+        self._ex_thread.started.connect(self._ex_worker.run)
+        self._ex_worker.interlinear_ready.connect(self._set_interlinear)
+        self._ex_worker.commentary_ready.connect(self._set_commentary)
+        self._ex_worker.error.connect(self._on_extras_error)
+        self._ex_worker.finished.connect(self._ex_thread.quit)
+        self._ex_thread.finished.connect(self._ex_worker.deleteLater)
+        self._ex_thread.finished.connect(self._ex_thread.deleteLater)
+        self._ex_thread.finished.connect(self._clear_extras_refs)
+        self._ex_thread.start()
+
+    def _clear_extras_refs(self):
+        self._ex_worker = None
+        self._ex_thread = None
 
     def _save_note(self):
         self.storage.put_note(self.ref.book_en, self.ref.chapter, self.verse,
@@ -1040,14 +1375,14 @@ class VerseBlock(QWidget):
 
     def flush_note(self):
         """디바운스 대기 중인 메모를 즉시 저장. 블록 제거/앱 종료 직전에 호출."""
-        if self._note_timer.isActive():
+        if self._body_built and self._note_timer.isActive():
             self._note_timer.stop()
             self._save_note()
 
-    def set_interlinear(self, words: list[dict[str, str]]):
+    def _set_interlinear(self, words: list):
         self.interlinear.set_words(words)
 
-    def set_commentary(self, text: str):
+    def _set_commentary(self, text: str):
         html_parts = []
         for block in text.split("\n\n"):
             block = block.strip()
@@ -1062,17 +1397,13 @@ class VerseBlock(QWidget):
             "\n".join(html_parts) or f"<p style='color:#888'>{tr('verse.no_commentary')}</p>"
         )
 
-    def set_loading(self):
-        self.interlinear.set_loading()
-        self.commentary.setHtml(f"<p style='color:#888'>{tr('verse.loading')}</p>")
-
-    def set_interlinear_error(self, message: str):
-        self.interlinear.set_error(message)
-
-    def set_commentary_error(self, message: str):
-        self.commentary.setHtml(
-            f"<p style='color:#c33'>{tr('verse.commentary_failed')}<br><small>{message}</small></p>"
-        )
+    def _on_extras_error(self, kind: str, message: str):
+        if kind == "interlinear":
+            self.interlinear.set_error(message)
+        else:
+            self.commentary.setHtml(
+                f"<p style='color:#c33'>{tr('verse.commentary_failed')}<br><small>{message}</small></p>"
+            )
 
 
 def _wrap_in_scroll(content: QWidget) -> QScrollArea:
@@ -1086,16 +1417,31 @@ def _wrap_in_scroll(content: QWidget) -> QScrollArea:
 
 # ---------- 메인 윈도우 ----------
 
+# 열려 있는 창들을 붙잡아 둔다 (참조가 사라지면 GC 되므로). 새 창을 Ctrl+N 으로 연다.
+_OPEN_WINDOWS: list = []
+
+
 class MainWindow(QMainWindow):
+    MAX_PANELS = 4  # 가로 패널(세로 구절 묶음) 최대 개수
+
     def __init__(self, storage: Storage, fetcher: CrossBibleFetcher, settings: QSettings):
         super().__init__()
         self.storage = storage
         self.fetcher = fetcher
         self.settings = settings
         self._thread: QThread | None = None
-        self._worker: FetchWorker | None = None
+        self._worker: VersesWorker | None = None
         self._dl_thread: QThread | None = None
         self._dl_worker: DownloadWorker | None = None
+
+        # 패널(세로 구절 묶음)들. 좌측 가로 배치의 원본. self._passages 는 이를
+        # 읽기 순서(좌→우, 위→아래)로 펼친 평면 리스트(우측 패널 순서용).
+        # 본문/오류/절목록은 위치가 아니라 Reference 로 키잉 → 순서를 바꿔도 재사용.
+        self._panels: list[Panel] = []
+        self._passages: list[Reference] = []
+        self._verse_data: dict[tuple[Reference, str], list] = {}
+        self._verse_errors: dict[tuple[Reference, str], str] = {}
+        self._passage_verses: dict[Reference, list[int]] = {}
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1109,6 +1455,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(8)
 
         root.addLayout(self._build_selector())
+        root.addLayout(self._build_multi_input())
         root.addLayout(self._build_translation_filter())
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1157,6 +1504,12 @@ class MainWindow(QMainWindow):
             lang_menu.addAction(action)
 
         tools_menu = bar.addMenu(tr("menu.tools"))
+        new_win_action = QAction(tr("menu.new_window"), self)
+        new_win_action.setShortcut(QKeySequence("Ctrl+N"))
+        new_win_action.triggered.connect(self._on_new_window)
+        tools_menu.addAction(new_win_action)
+        tools_menu.addSeparator()
+
         dl_action = QAction(tr("menu.download_all"), self)
         dl_action.triggered.connect(self._on_download_all)
         tools_menu.addAction(dl_action)
@@ -1185,6 +1538,15 @@ class MainWindow(QMainWindow):
         import_action.triggered.connect(self._on_import_db)
         tools_menu.addAction(import_action)
 
+        library_menu = bar.addMenu(tr("menu.library"))
+        lib_save_action = QAction(tr("library.save"), self)
+        lib_save_action.triggered.connect(self._on_library_save)
+        library_menu.addAction(lib_save_action)
+        lib_open_action = QAction(tr("library.open"), self)
+        lib_open_action.triggered.connect(self._on_library_open)
+        library_menu.addAction(lib_open_action)
+        self._library_dialog: LibraryDialog | None = None
+
         help_menu = bar.addMenu(tr("menu.help"))
         feedback_action = QAction(tr("menu.feedback"), self)
         feedback_action.triggered.connect(self._on_open_feedback)
@@ -1200,6 +1562,12 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, theme)
+
+    def _on_new_window(self):
+        # 같은 storage/fetcher/settings 를 공유하는 새 창을 연다 (캐시·메모 공유).
+        win = MainWindow(self.storage, self.fetcher, self.settings)
+        win.show()
+        _OPEN_WINDOWS.append(win)
 
     def _on_language_chosen(self, lang: str):
         if lang == _CURRENT_LANG:
@@ -1233,7 +1601,7 @@ class MainWindow(QMainWindow):
 
         row.addWidget(QLabel(tr("selector.book")))
         self.book_box = QComboBox()
-        self.book_box.addItems(book_names_ko())
+        self.book_box.addItems(book_names_en() if _CURRENT_LANG == "en" else book_names_ko())
         self.book_box.setEditable(True)
         self.book_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         completer = self.book_box.completer()
@@ -1261,9 +1629,29 @@ class MainWindow(QMainWindow):
         self.verse_end.setValue(1)
         row.addWidget(self.verse_end)
 
+        self.whole_check = QCheckBox(tr("selector.whole"))
+        self.whole_check.setToolTip(tr("selector.whole_tooltip"))
+        self.whole_check.toggled.connect(self._on_whole_toggled)
+        row.addWidget(self.whole_check)
+
         self.lookup_btn = QPushButton(tr("selector.lookup"))
         self.lookup_btn.clicked.connect(self._on_lookup)
         row.addWidget(self.lookup_btn)
+
+        self.add_btn = QPushButton(tr("selector.add"))
+        self.add_btn.setToolTip(tr("selector.add_tooltip"))
+        self.add_btn.clicked.connect(self._on_add)
+        row.addWidget(self.add_btn)
+
+        self.new_panel_btn = QPushButton(tr("selector.new_panel"))
+        self.new_panel_btn.setToolTip(tr("selector.new_panel_tooltip"))
+        self.new_panel_btn.clicked.connect(self._on_new_panel)
+        row.addWidget(self.new_panel_btn)
+
+        self.refresh_btn = QPushButton(tr("selector.refresh"))
+        self.refresh_btn.setToolTip(tr("selector.refresh_tooltip"))
+        self.refresh_btn.clicked.connect(self._on_refresh)
+        row.addWidget(self.refresh_btn)
 
         row.addStretch(1)
 
@@ -1274,6 +1662,25 @@ class MainWindow(QMainWindow):
         self.side_toggle_btn.toggled.connect(self._on_side_toggled)
         row.addWidget(self.side_toggle_btn)
         return row
+
+    def _build_multi_input(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        self.multi_edit = QLineEdit()
+        self.multi_edit.setPlaceholderText(tr("multi.placeholder"))
+        self.multi_edit.setToolTip(tr("multi.tooltip"))
+        self.multi_edit.returnPressed.connect(self._on_multi_lookup)
+        row.addWidget(self.multi_edit, 1)
+        multi_lookup_btn = QPushButton(tr("multi.lookup"))
+        multi_lookup_btn.clicked.connect(self._on_multi_lookup)
+        row.addWidget(multi_lookup_btn)
+        multi_add_btn = QPushButton(tr("multi.add"))
+        multi_add_btn.clicked.connect(self._on_multi_add)
+        row.addWidget(multi_add_btn)
+        return row
+
+    def _on_whole_toggled(self, checked: bool):
+        self.verse_start.setEnabled(not checked)
+        self.verse_end.setEnabled(not checked)
 
     def _build_translation_filter(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -1288,22 +1695,13 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
         return row
 
-    def _build_translations_column(self) -> QScrollArea:
+    def _build_translations_column(self) -> QWidget:
+        # 구절 패널들을 좌→우로 나란히 (최대 4). 각 패널은 자체 세로 스크롤을 가진다.
         self._translations_container = QWidget()
-        layout = QVBoxLayout(self._translations_container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.panels: dict[str, TranslationPanel] = {}
-        for i, code in enumerate(CrossBibleFetcher.TRANSLATIONS):
-            panel = TranslationPanel(code, CrossBibleFetcher.TRANSLATION_LABELS[code])
-            self.panels[code] = panel
-            layout.addWidget(panel)
-            if i < len(CrossBibleFetcher.TRANSLATIONS) - 1:
-                layout.addWidget(_hline())
-
-        layout.addStretch(1)
-        return _wrap_in_scroll(self._translations_container)
+        self._left_layout = QHBoxLayout(self._translations_container)
+        self._left_layout.setContentsMargins(0, 0, 0, 0)
+        self._left_layout.setSpacing(6)
+        return self._translations_container
 
     def _build_side_column(self) -> QWidget:
         wrapper = QWidget()
@@ -1311,69 +1709,434 @@ class MainWindow(QMainWindow):
         wrapper_layout.setContentsMargins(0, 0, 0, 0)
         wrapper_layout.setSpacing(4)
 
-        # 절 점프 네비게이션 — 스크롤 영역 위에 고정. 절을 받을 때마다 _rebuild_side 가
-        # 버튼을 다시 채운다.
+        # 절 점프 네비게이션 — 가로 스크롤로 감싸 한 줄을 넘쳐도(전체 장 등) 안전.
         self._nav_bar = QWidget()
         self._nav_layout = QHBoxLayout(self._nav_bar)
         self._nav_layout.setContentsMargins(4, 4, 4, 4)
         self._nav_layout.setSpacing(4)
         self._nav_layout.addStretch(1)
-        wrapper_layout.addWidget(self._nav_bar)
+        nav_scroll = QScrollArea()
+        nav_scroll.setWidget(self._nav_bar)
+        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setFixedHeight(44)
+        nav_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        wrapper_layout.addWidget(nav_scroll)
 
         self._side_container = QWidget()
         self._side_layout = QVBoxLayout(self._side_container)
         self._side_layout.setContentsMargins(0, 0, 0, 0)
         self._side_layout.setSpacing(0)
         self._side_layout.addStretch(1)
-        self.verse_blocks: dict[int, VerseBlock] = {}
+        self.verse_blocks: dict[tuple[Reference, int], VerseBlock] = {}
 
         self._side_scroll_inner = _wrap_in_scroll(self._side_container)
         wrapper_layout.addWidget(self._side_scroll_inner, 1)
         return wrapper
 
-    def _rebuild_side(self, ref: Reference):
-        # 기존 절 블록 제거 (디바운스 대기 중인 메모는 먼저 저장)
-        for block in self.verse_blocks.values():
-            block.flush_note()
-            block.setParent(None)
-            block.deleteLater()
-        self.verse_blocks.clear()
+    # ---- passage 보기 (다중 구절 + 번갈아보기 + 지연 로딩) ----
 
-        # 네비 버튼 제거 (마지막 stretch 는 유지)
-        while self._nav_layout.count() > 1:
-            item = self._nav_layout.takeAt(0)
+    @staticmethod
+    def _esc(text: str) -> str:
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _clear_left(self):
+        while self._left_layout.count():
+            item = self._left_layout.takeAt(0)
             w = item.widget()
             if w is not None:
+                w.setParent(None)
                 w.deleteLater()
 
-        stretch_idx = self._side_layout.count() - 1
-        nav_insert = self._nav_layout.count() - 1  # stretch 앞 자리
-        for v in ref.verse_numbers():
-            block = VerseBlock(ref, v, self.storage)
-            block.set_loading()
-            self.verse_blocks[v] = block
-            self._side_layout.insertWidget(stretch_idx, block)
-            stretch_idx += 1
+    def _apply_panels(self, panels: list[Panel], force: bool = False):
+        """패널 구조를 정규화해 적용하고, 필요한 것만 조회한다.
 
-            btn = QPushButton(str(v))
+        본문/오류/절목록은 Reference 로 키잉되어 있어, 순서를 바꾸거나 블록을 옮겨도
+        이미 받은 데이터는 그대로 재사용한다 → 재정렬/삭제는 재조회 없이 즉시 반영.
+        새로 생긴 구절(또는 force) 만 백그라운드로 조회한다.
+
+        - 전역 중복 제거(같은 구절은 첫 등장만) · 빈 패널 유지 · 패널 최대 MAX_PANELS 개.
+        """
+        seen: set[Reference] = set()
+        norm: list[Panel] = []
+        for p in panels:
+            blocks: list[Reference] = []
+            for ref in p.blocks:
+                if ref not in seen:
+                    seen.add(ref)
+                    blocks.append(ref)
+            norm.append(Panel(blocks, p.interleave))
+        if len(norm) > self.MAX_PANELS:
+            norm = norm[:self.MAX_PANELS]
+            self.statusBar().showMessage(tr("passage.max_reached", n=self.MAX_PANELS), 4000)
+        self._panels = norm
+        flat = [ref for p in norm for ref in p.blocks]
+        self._passages = flat
+
+        # 화면에서 사라진 구절의 데이터는 정리 (메모리/혼선 방지)
+        present = set(flat)
+        self._verse_data = {k: v for k, v in self._verse_data.items() if k[0] in present}
+        self._verse_errors = {k: v for k, v in self._verse_errors.items() if k[0] in present}
+        self._passage_verses = {r: v for r, v in self._passage_verses.items() if r in present}
+        # 범위 구절의 절 번호는 즉시 안다 (우측 블록 바로 빌드). 장 전체는 본문 도착 후.
+        for ref in flat:
+            if not ref.whole_chapter and ref not in self._passage_verses:
+                self._passage_verses[ref] = ref.verse_numbers()
+
+        # 캐시에 있는 본문은 UI 스레드에서 즉시(동기 SQL) 채운다. 그래야 캐시된 번역본이
+        # '캐시 안 된 번역본의 네트워크 대기' 뒤에 줄 서지 않고 바로 뜬다.
+        # 진짜 없는 (구절, 번역본) 만 백그라운드 네트워크 조회 대상(targets)으로 남긴다.
+        enabled = self._enabled_translations()
+        targets: list[tuple[Reference, str]] = []
+        for ref in flat:
+            for t in enabled:
+                if (ref, t) in self._verse_data:
+                    continue
+                if not force:
+                    cached = self.fetcher.get_cached(t, ref)
+                    if cached is not None:
+                        self._verse_data[(ref, t)] = cached
+                        if ref.whole_chapter and ref not in self._passage_verses:
+                            self._passage_verses[ref] = [n for n, _ in cached]
+                        continue
+                targets.append((ref, t))
+
+        # 화면을 그린다 (캐시된 본문은 이미 채워져 바로 보임). 우측 블록은 재사용.
+        self._rebuild_side()
+        self._render_left()
+
+        if flat:
+            head = _ref_header(flat[0]) + (f" +{len(flat) - 1}" if len(flat) > 1 else "")
+            self.setWindowTitle(tr("app.title_with_ref", ref=head))
+        else:
+            self.setWindowTitle(tr("app.title"))
+
+        self._fetch(targets, force)
+
+    def _fetch(self, targets: list[tuple[Reference, str]], force: bool = False):
+        # 진행 중 워커는 기다리지 않고 분리한다. blockSignals 만으론 '이미 큐에 쌓인'
+        # 신호가 그대로 전달돼 옛 결과가 새 화면을 오염시키므로 연결 자체를 끊는다.
+        if self._thread is not None:
+            try:
+                if self._worker is not None:
+                    self._worker.cancel()
+                    self._worker.disconnect()
+                    self._worker.blockSignals(True)
+                self._thread.quit()
+            except Exception:
+                pass
+            self._worker = None
+            self._thread = None
+
+        if not targets:
+            if self._passages:
+                self.statusBar().showMessage(tr("status.done"), 2000)
+            return
+
+        if self._passages:
+            head = self._passages[0].header_ko
+            self.statusBar().showMessage(
+                tr("status.looking_up", ref_ko=head, ref_en=self._passages[0].header_en)
+            )
+
+        self._thread = QThread(self)
+        self._worker = VersesWorker(self.fetcher, targets, force=force)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.verses_ready.connect(self._on_verses_ready)
+        self._worker.error.connect(self._on_verses_error)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._on_finished)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.start()
+
+    # ---- 좌측(본문) 렌더링 ----
+
+    def _passage_verse_set(self, ref: Reference, enabled: list[str]) -> list[int]:
+        nums: set[int] = set()
+        for t in enabled:
+            data = self._verse_data.get((ref, t))
+            if data:
+                nums.update(n for n, _ in data)
+        if not nums and not ref.whole_chapter:
+            nums.update(ref.verse_numbers())
+        return sorted(nums)
+
+    def _render_left(self):
+        self._clear_left()
+        if not self._panels:
+            return
+        enabled = self._enabled_translations()
+        self._translations_container.setUpdatesEnabled(False)
+        try:
+            for panel_idx, panel in enumerate(self._panels):
+                self._left_layout.addWidget(
+                    self._render_panel(panel_idx, panel, enabled), 1
+                )
+        finally:
+            self._translations_container.setUpdatesEnabled(True)
+
+    def _render_panel(self, panel_idx: int, panel: Panel,
+                      enabled: list[str]) -> QWidget:
+        col = QWidget()
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(4, 6, 4, 4)
+        cv.setSpacing(3)
+
+        # 패널 상단 바: (번갈아보기 토글) + 패널 삭제 🗑
+        top = QHBoxLayout()
+        top.setSpacing(4)
+        if panel.blocks:
+            il = QCheckBox(tr("filter.interleave"))
+            il.setChecked(panel.interleave)
+            il.setToolTip(tr("filter.interleave_tooltip"))
+            il.toggled.connect(lambda ch, p=panel_idx: self._set_panel_interleave(p, ch))
+            top.addWidget(il)
+        else:
+            top.addWidget(self._muted(tr("panel.empty")), 1)
+        top.addStretch(1)
+        delp = QPushButton("🗑")
+        delp.setFixedSize(24, 20)
+        delp.setToolTip(tr("panel.remove_tooltip"))
+        delp.clicked.connect(lambda _c=False, p=panel_idx: self._remove_panel(p))
+        top.addWidget(delp)
+        cv.addLayout(top)
+
+        if not panel.blocks:
+            cv.addStretch(1)
+            return col
+
+        inner = QWidget()
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(0, 0, 0, 0)
+        iv.setSpacing(4)
+        for block_idx, ref in enumerate(panel.blocks):
+            iv.addWidget(self._render_block(panel_idx, block_idx, ref, enabled, panel.interleave))
+            if block_idx < len(panel.blocks) - 1:
+                iv.addWidget(_hline())
+        iv.addStretch(1)
+        cv.addWidget(_wrap_in_scroll(inner), 1)
+        return col
+
+    def _render_block(self, panel_idx: int, block_idx: int,
+                      ref: Reference, enabled: list[str], interleave: bool) -> QWidget:
+        box = QWidget()
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(2, 2, 2, 2)
+        bl.setSpacing(2)
+
+        en_mode = _CURRENT_LANG == "en"
+        bl.addWidget(_section_label(ref.header_en if en_mode else ref.header_ko, level=2))
+        sub = QLabel(ref.header_ko if en_mode else ref.header_en)
+        sub.setStyleSheet("color:#888; font-size:9pt;")
+        bl.addWidget(sub)
+
+        # 버튼: ◀ ▶ (패널 간 이동) · ↑ ↓ (패널 안 순서) · ✂ split · ✕ 제거
+        n_panels = len(self._panels)
+        n_blocks = len(self._panels[panel_idx].blocks)
+        controls = [
+            ("◀", tr("block.move_left"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._move_block_panel(p, b, -1), panel_idx > 0),
+            ("▶", tr("block.move_right"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._move_block_panel(p, b, +1), panel_idx < n_panels - 1),
+            ("↑", tr("block.move_up"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._move_block(p, b, -1), block_idx > 0),
+            ("↓", tr("block.move_down"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._move_block(p, b, +1), block_idx < n_blocks - 1),
+            ("✂", tr("passage.split_tooltip"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._split_block(p, b), True),
+            ("✕", tr("passage.remove_tooltip"),
+             lambda _c=False, p=panel_idx, b=block_idx: self._remove_block(p, b), True),
+        ]
+        brow = QHBoxLayout()
+        brow.setSpacing(1)
+        brow.addStretch(1)
+        for text, tip, slot, on in controls:
+            b = QPushButton(text)
+            b.setFixedSize(22, 20)
+            b.setToolTip(tip)
+            b.setEnabled(on)
+            b.clicked.connect(slot)
+            brow.addWidget(b)
+        bl.addLayout(brow)
+
+        if interleave:
+            verses = self._passage_verse_set(ref, enabled)
+            if not verses:
+                bl.addWidget(self._muted(tr("verse.loading")))
+            for n in verses:
+                bl.addWidget(self._interleave_widget(ref, n, enabled))
+        else:
+            for t in enabled:
+                bl.addWidget(self._translation_subblock(ref, t))
+        return box
+
+    @staticmethod
+    def _muted(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color:#888;")
+        lbl.setWordWrap(True)
+        return lbl
+
+    def _translation_subblock(self, ref: Reference, t: str) -> QWidget:
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 2, 0, 4)
+        v.setSpacing(2)
+        name = QLabel(CrossBibleFetcher.TRANSLATION_LABELS.get(t, t))
+        nf = name.font()
+        nf.setBold(True)
+        name.setFont(nf)
+        v.addWidget(name)
+
+        body = QLabel()
+        body.setWordWrap(True)
+        body.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        if t in ("GAE", "KLB"):
+            bf = body.font()
+            bf.setPointSize(bf.pointSize() + 1)
+            body.setFont(bf)
+
+        if (ref, t) in self._verse_errors:
+            body.setText(
+                f"<span style='color:#c33'>{tr('verse.fetch_failed')}<br>"
+                f"<small>{self._esc(self._verse_errors[(ref, t)])}</small></span>"
+            )
+        else:
+            data = self._verse_data.get((ref, t))
+            if data is None:
+                body.setText(f"<span style='color:#888'>{tr('verse.loading')}</span>")
+            else:
+                parts = [f"<b>{n}</b>&nbsp;&nbsp;{self._esc(txt)}" for n, txt in data]
+                body.setText("<br>".join(parts))
+        v.addWidget(body)
+        return box
+
+    def _interleave_widget(self, ref: Reference, n: int, enabled: list[str]) -> QWidget:
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 4, 0, 4)
+        v.setSpacing(1)
+        v.addWidget(QLabel(f"<b>{n}</b>"))
+        for t in enabled:
+            label = CrossBibleFetcher.TRANSLATION_LABELS.get(t, t)
+            line = QLabel(
+                f"<span style='color:#999'>{label}</span>&nbsp;&nbsp;{self._verse_text(ref, t, n)}"
+            )
+            line.setWordWrap(True)
+            line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            line.setContentsMargins(14, 0, 0, 0)
+            if t in ("GAE", "KLB"):
+                lf = line.font()
+                lf.setPointSize(lf.pointSize() + 1)
+                line.setFont(lf)
+            v.addWidget(line)
+        return box
+
+    def _verse_text(self, ref: Reference, t: str, n: int) -> str:
+        if (ref, t) in self._verse_errors:
+            return "<span style='color:#c33'>—</span>"
+        data = self._verse_data.get((ref, t))
+        if data is None:
+            return "<span style='color:#888'>…</span>"
+        for vn, txt in data:
+            if vn == n:
+                return self._esc(txt)
+        return "<span style='color:#bbb'>—</span>"
+
+    # ---- 우측(원어/주석/메모) 빌드 ----
+
+    def _rebuild_side(self):
+        """우측 패널을 읽기 순서(왼쪽 패널부터 위→아래)로 재구성한다.
+
+        VerseBlock 은 (구절, 절) 키로 '재사용'한다 — 순서만 바뀌면 위젯을 새로 만들지
+        않고 떼었다 다시 끼우므로 빠르고, 펼침·원어/주석·메모 상태가 유지된다.
+        """
+        old = self.verse_blocks  # (ref, verse) -> VerseBlock (재사용 후보)
+        # 레이아웃에서 모두 떼어낸다. VerseBlock 은 삭제하지 않고 보관(재사용), 나머지는 삭제.
+        while self._side_layout.count() > 1:
+            w = self._side_layout.takeAt(0).widget()
+            if w is None:
+                continue
+            w.setParent(None)
+            if not isinstance(w, VerseBlock):
+                w.deleteLater()
+        while self._nav_layout.count() > 1:
+            w = self._nav_layout.takeAt(0).widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+        self.verse_blocks = {}
+        for ref in self._passages:
+            verses = self._passage_verses.get(ref)
+            if verses:
+                self._append_side_passage(ref, verses, old)
+
+        # 더 이상 화면에 없는 옛 블록은 정리 (디바운스 대기 중인 메모는 먼저 저장)
+        for key, blk in old.items():
+            if key not in self.verse_blocks:
+                blk.flush_note()
+                blk.setParent(None)
+                blk.deleteLater()
+
+    def _append_side_passage(self, ref: Reference, verses: list[int], old: dict):
+        insert = self._side_layout.count() - 1
+        en_mode = _CURRENT_LANG == "en"
+        primary = ref.header_en if en_mode else ref.header_ko
+        secondary = ref.header_ko if en_mode else ref.header_en
+        header = _section_label(f"{primary}  ({secondary})", level=1)
+        self._side_layout.insertWidget(insert, header)
+        insert += 1
+
+        nav_insert = self._nav_layout.count() - 1
+        nav_label = QLabel(f"{_book_name(ref.book_en, ref.book_ko)}{ref.chapter}:")
+        nav_label.setStyleSheet("color:#888; padding:0 2px;")
+        self._nav_layout.insertWidget(nav_insert, nav_label)
+        nav_insert += 1
+
+        for n in verses:
+            key = (ref, n)
+            block = old.pop(key, None)  # 있으면 재사용 (상태 유지)
+            if block is None:
+                block = VerseBlock(ref, n, self.storage, self.fetcher)
+            self.verse_blocks[key] = block
+            self._side_layout.insertWidget(insert, block)
+            insert += 1
+
+            btn = QPushButton(str(n))
             btn.setFixedHeight(24)
             btn.setStyleSheet("padding: 0 8px;")
-            btn.setToolTip(f"{ref.book_ko} {ref.chapter}:{v}")
-            btn.clicked.connect(lambda _checked=False, num=v: self._scroll_to_verse(num))
+            btn.setToolTip(f"{_book_name(ref.book_en, ref.book_ko)} {ref.chapter}:{n}")
+            btn.clicked.connect(lambda _checked=False, r=ref, num=n: self._scroll_to(r, num))
             self._nav_layout.insertWidget(nav_insert, btn)
             nav_insert += 1
 
-    def _scroll_to_verse(self, verse: int):
-        block = self.verse_blocks.get(verse)
+    def _scroll_to(self, ref: Reference, verse: int):
+        block = self.verse_blocks.get((ref, verse))
         if block is None:
             return
+        block.expand()
         self._side_scroll_inner.ensureWidgetVisible(block, 0, 8)
 
     # ---- 선택 처리 ----
 
+    @staticmethod
+    def _resolve_book(text: str) -> tuple[str, str, int] | None:
+        """콤보의 현재 책 이름(영/한 무관)을 (영문, 한글, 장수)로 해석."""
+        r = resolve_book(text)
+        if r is None:
+            return None
+        en, ko = r
+        return en, ko, book_chapters(en)
+
     def _on_book_changed(self, idx: int):
-        ko = self.book_box.currentText()
-        info = lookup_by_ko(ko)
+        info = self._resolve_book(self.book_box.currentText())
         if not info:
             return
         _, _, chapters = info
@@ -1385,116 +2148,205 @@ class MainWindow(QMainWindow):
         self.verse_end.setValue(1)
 
     def _current_ref(self) -> Reference | None:
-        ko = self.book_box.currentText()
-        info = lookup_by_ko(ko)
+        info = self._resolve_book(self.book_box.currentText())
         if not info:
             return None
         en, ko_canonical, _ = info
+        if self.whole_check.isChecked():
+            return Reference(en, ko_canonical, self.chap_box.value(), 1, 1, whole_chapter=True)
         vs = self.verse_start.value()
         ve = max(self.verse_end.value(), vs)
         return Reference(en, ko_canonical, self.chap_box.value(), vs, ve)
+
+    def _copy_panels(self) -> list[Panel]:
+        return [Panel(list(p.blocks), p.interleave) for p in self._panels]
 
     def _on_lookup(self):
         ref = self._current_ref()
         if ref is None:
             return
-        if ref.verse_end - ref.verse_start + 1 > 20:
-            QMessageBox.warning(
-                self,
-                tr("lookup.range_too_big_title"),
-                tr("lookup.range_too_big_body"),
+        self._apply_panels([Panel([ref])])  # 교체: 한 패널 한 구절
+
+    def _on_add(self):
+        # ＋추가: 맨 왼쪽 패널에 쌓는다 (패널이 없으면 하나 만든다).
+        ref = self._current_ref()
+        if ref is None:
+            return
+        panels = self._copy_panels()
+        if panels:
+            panels[0].blocks.append(ref)
+        else:
+            panels = [Panel([ref])]
+        self._apply_panels(panels)
+
+    def _on_new_panel(self):
+        if len(self._panels) >= self.MAX_PANELS:
+            QMessageBox.information(
+                self, tr("passage.max_title"), tr("passage.max_body", n=self.MAX_PANELS)
             )
             return
+        self._apply_panels(self._copy_panels() + [Panel([])])
 
-        if self._thread is not None:
-            # 진행 중인 조회는 기다리지 않고 분리한다. FetchWorker.run 은 블로킹
-            # requests 중간에 멈출 수 없어 wait() 하면 UI 가 최대 timeout(20초)만큼
-            # 얼어붙는다. 대신 취소 플래그를 세우고 잔여 신호를 막은 뒤 곧장 새 조회를
-            # 시작한다. 옛 스레드는 진행 중 요청이 끝나면 finished→deleteLater 로
-            # 스스로 정리된다.
-            try:
-                if self._worker is not None:
-                    self._worker.cancel()
-                    self._worker.blockSignals(True)
-                self._thread.quit()
-            except Exception:
-                pass
+    def _on_refresh(self):
+        # 현재 화면의 구절을 캐시 무시하고 다시 가져온다 (오래되거나 누락된 본문 갱신).
+        if self._panels:
+            self._apply_panels(self._panels, force=True)
 
-        self.statusBar().showMessage(
-            tr("status.looking_up", ref_ko=ref.header_ko, ref_en=ref.header_en)
-        )
-        self.setWindowTitle(tr("app.title_with_ref", ref=ref.header_ko))
+    # ---- 블록/패널 조작 ----
 
-        enabled = self._enabled_translations()
-        for code, panel in self.panels.items():
-            if code in enabled:
-                panel.set_loading()
-        self._rebuild_side(ref)
+    def _remove_block(self, panel_idx: int, block_idx: int):
+        panels = self._copy_panels()
+        if 0 <= panel_idx < len(panels) and 0 <= block_idx < len(panels[panel_idx].blocks):
+            del panels[panel_idx].blocks[block_idx]
+            self._apply_panels(panels)
 
-        verse_count = ref.verse_end - ref.verse_start + 1
-        self._extras_total = verse_count * 2
-        self._extras_done = 0
+    def _remove_panel(self, panel_idx: int):
+        panels = self._copy_panels()
+        if 0 <= panel_idx < len(panels):
+            del panels[panel_idx]
+            self._apply_panels(panels)
 
-        self._thread = QThread(self)
-        self._worker = FetchWorker(self.fetcher, ref, enabled)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
+    def _move_block(self, panel_idx: int, block_idx: int, delta: int):
+        # 패널 안에서 위/아래 순서 이동
+        panels = self._copy_panels()
+        blocks = panels[panel_idx].blocks
+        j = block_idx + delta
+        if 0 <= block_idx < len(blocks) and 0 <= j < len(blocks):
+            blocks[block_idx], blocks[j] = blocks[j], blocks[block_idx]
+            self._apply_panels(panels)
 
-        self._worker.verses_ready.connect(self._on_verses_ready)
-        self._worker.interlinear_ready.connect(self._on_interlinear_ready)
-        self._worker.commentary_ready.connect(self._on_commentary_ready)
-        self._worker.error.connect(self._on_error)
-        self._worker.finished.connect(self._thread.quit)
-        self._worker.finished.connect(self._on_finished)
-        self._thread.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.start()
+    def _move_block_panel(self, panel_idx: int, block_idx: int, delta: int):
+        # 블록을 왼쪽/오른쪽 패널로 옮긴다 (그 패널 맨 아래에 쌓임)
+        q = panel_idx + delta
+        if not (0 <= panel_idx < len(self._panels) and 0 <= q < len(self._panels)):
+            return
+        panels = self._copy_panels()
+        if not (0 <= block_idx < len(panels[panel_idx].blocks)):
+            return
+        ref = panels[panel_idx].blocks.pop(block_idx)
+        panels[q].blocks.append(ref)
+        self._apply_panels(panels)
 
-    def _on_verses_ready(self, translation: str, verses: list):
-        panel = self.panels.get(translation)
-        if panel:
-            panel.set_verses(verses)
-
-    def _on_interlinear_ready(self, verse: int, words: list):
-        block = self.verse_blocks.get(verse)
-        if block:
-            block.set_interlinear(words)
-        self._bump_extras_progress()
-
-    def _on_commentary_ready(self, verse: int, text: str):
-        block = self.verse_blocks.get(verse)
-        if block:
-            block.set_commentary(text)
-        self._bump_extras_progress()
-
-    def _bump_extras_progress(self):
-        self._extras_done += 1
-        if self._extras_done < self._extras_total:
-            self.statusBar().showMessage(
-                tr("status.extras_progress", done=self._extras_done, total=self._extras_total)
-            )
-
-    def _on_error(self, source: str, message: str):
-        if source in self.panels:
-            self.panels[source].set_error(message)
-        elif source == "interlinear":
-            try:
-                num = int(message.split(":")[0].lstrip("v"))
-                block = self.verse_blocks.get(num)
-                if block:
-                    block.set_interlinear_error(message)
-            except Exception:
-                self.statusBar().showMessage(f"[{source}] {message}", 8000)
-        elif source == "commentary":
-            try:
-                num = int(message.split(":")[0].lstrip("v"))
-                block = self.verse_blocks.get(num)
-                if block:
-                    block.set_commentary_error(message)
-            except Exception:
-                self.statusBar().showMessage(f"[{source}] {message}", 8000)
+    def _split_block(self, panel_idx: int, block_idx: int):
+        """블록의 절 범위를 위/아래 둘로 나눠 같은 패널에 쌓는다 ([lo..k], [k+1..hi])."""
+        if not (0 <= panel_idx < len(self._panels)):
+            return
+        if not (0 <= block_idx < len(self._panels[panel_idx].blocks)):
+            return
+        ref = self._panels[panel_idx].blocks[block_idx]
+        if ref.whole_chapter:
+            verses = self._passage_verses.get(ref)
+            if not verses:
+                QMessageBox.information(self, tr("split.title"), tr("split.need_text"))
+                return
+            lo, hi = verses[0], verses[-1]
         else:
-            self.statusBar().showMessage(f"[{source}] {message}", 8000)
+            lo, hi = ref.verse_start, ref.verse_end
+        if hi - lo < 1:
+            QMessageBox.information(self, tr("split.title"), tr("split.too_small"))
+            return
+        k, ok = QInputDialog.getInt(
+            self, tr("split.title"), tr("split.label", lo=lo, hi=hi),
+            (lo + hi) // 2, lo, hi - 1,
+        )
+        if not ok:
+            return
+        a = Reference(ref.book_en, ref.book_ko, ref.chapter, lo, k)
+        b = Reference(ref.book_en, ref.book_ko, ref.chapter, k + 1, hi)
+
+        # 반쪽 두 구절의 본문은 부모가 이미 받은 데이터를 잘라 채운다 → 재조회 없이 즉시.
+        for (rk, t), pdata in list(self._verse_data.items()):
+            if rk == ref:
+                self._verse_data[(a, t)] = [(n, x) for n, x in pdata if lo <= n <= k]
+                self._verse_data[(b, t)] = [(n, x) for n, x in pdata if k + 1 <= n <= hi]
+        for (rk, t), perr in list(self._verse_errors.items()):
+            if rk == ref:
+                self._verse_errors[(a, t)] = perr
+                self._verse_errors[(b, t)] = perr
+
+        panels = self._copy_panels()
+        panels[panel_idx].blocks[block_idx:block_idx + 1] = [a, b]
+        self._apply_panels(panels)
+
+    # ---- 라이브러리 ----
+
+    def _on_library_save(self):
+        if not self._passages:
+            QMessageBox.information(self, tr("library.save_title"), tr("library.save_empty"))
+            return
+        name, ok = QInputDialog.getText(self, tr("library.save_title"), tr("library.save_label"))
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            return
+        # 패널 구조(위치·묶음·번갈아보기)까지 저장.
+        self.storage.save_collection(name, serialize_panels(self._panels))
+        if self._library_dialog is not None:
+            self._library_dialog.refresh()
+        self.statusBar().showMessage(
+            tr("library.saved", name=name, count=len(self._passages)), 4000
+        )
+
+    def _on_library_open(self):
+        if self._library_dialog is None:
+            self._library_dialog = LibraryDialog(self.storage, self)
+            # 불러오기: 저장된 패널 구조 그대로 교체. 추가: 그 패널들을 뒤에 붙임.
+            self._library_dialog.load_replace.connect(self._apply_panels)
+            self._library_dialog.load_add.connect(
+                lambda panels: self._apply_panels(self._copy_panels() + panels)
+            )
+        self._library_dialog.refresh()
+        self._library_dialog.show()
+        self._library_dialog.raise_()
+        self._library_dialog.activateWindow()
+
+    def _parse_multi(self) -> list[Reference] | None:
+        text = self.multi_edit.text().strip()
+        if not text:
+            QMessageBox.information(self, tr("parse.none_title"), tr("parse.none_body"))
+            return None
+        refs, errors = parse_references(text)
+        if errors:
+            QMessageBox.warning(
+                self, tr("parse.problem_title"),
+                tr("parse.problem_unparsed", tokens=", ".join(errors)),
+            )
+        return refs
+
+    def _add_refs_to_first_panel(self, refs: list[Reference]):
+        panels = self._copy_panels()
+        if not panels:
+            panels = [Panel([])]
+        panels[0].blocks.extend(refs)
+        self._apply_panels(panels)
+
+    def _on_multi_lookup(self):
+        refs = self._parse_multi()
+        if not refs:
+            return
+        self._apply_panels([Panel(list(refs))])  # 교체: 한 패널에 모두 쌓기
+
+    def _on_multi_add(self):
+        refs = self._parse_multi()
+        if not refs:
+            return
+        self._add_refs_to_first_panel(refs)  # 맨 왼쪽 패널에 쌓기
+
+    def _on_verses_ready(self, ref: Reference, translation: str, verses: list):
+        self._verse_data[(ref, translation)] = verses
+        self._verse_errors.pop((ref, translation), None)
+        # 장 전체는 본문이 도착해야 절 수를 안다 — 첫 도착 시 우측 블록을 (재사용하며) 빌드.
+        if ref.whole_chapter and ref not in self._passage_verses:
+            nums = [n for n, _ in verses]
+            if nums:
+                self._passage_verses[ref] = nums
+                self._rebuild_side()
+        self._render_left()
+
+    def _on_verses_error(self, ref: Reference, translation: str, message: str):
+        self._verse_errors[(ref, translation)] = message
+        self._render_left()
 
     def _on_finished(self):
         self.statusBar().showMessage(tr("status.done"), 3000)
@@ -1509,18 +2361,29 @@ class MainWindow(QMainWindow):
             tr("selector.side_on") if checked else tr("selector.side_off")
         )
 
+    def _set_panel_interleave(self, panel_idx: int, checked: bool):
+        # 패널별 번갈아보기 — 좌측만 다시 그림(재조회 없음).
+        if 0 <= panel_idx < len(self._panels):
+            self._panels[panel_idx].interleave = checked
+            self._render_left()
+
     def _on_translation_toggled(self, code: str, checked: bool):
-        panel = self.panels.get(code)
-        if panel is not None:
-            panel.setVisible(checked)
+        # 최소 한 개는 켜둔다
         if not any(cb.isChecked() for cb in self.translation_checks.values()):
             cb = self.translation_checks[code]
             cb.blockSignals(True)
             cb.setChecked(True)
             cb.blockSignals(False)
-            if panel is not None:
-                panel.setVisible(True)
             self.statusBar().showMessage(tr("status.min_one_translation"), 3000)
+            return
+        # 켠 번역본의 본문이 아직 없으면 그 번역만 조회. 끄면 좌측만 다시 그림.
+        missing = checked and any(
+            (ref, code) not in self._verse_data for ref in self._passages
+        )
+        if missing:
+            self._apply_panels(self._panels)
+        else:
+            self._render_left()
 
     def _enabled_translations(self) -> list[str]:
         return [
@@ -1672,17 +2535,13 @@ class MainWindow(QMainWindow):
         self._search_dialog.input_edit.setFocus()
 
     def _on_search_jump(self, book_en: str, chapter: int, verse: int):
-        # 결과 클릭 → 셀렉터에 값 채우고 즉시 조회
+        # 검색 결과 더블클릭 → 화면을 비우지 않고 '맨 왼쪽 패널'에 그 절을 추가.
+        # 검색 다이얼로그는 모드리스라 그대로 열려 있어 계속 추가할 수 있다.
         from bible_books import BOOKS
         ko = next((k for en, k, _, _, _ in BOOKS if en == book_en), None)
         if ko is None:
             return
-        self.book_box.setCurrentText(ko)
-        self._on_book_changed(self.book_box.currentIndex())
-        self.chap_box.setValue(chapter)
-        self.verse_start.setValue(verse)
-        self.verse_end.setValue(verse)
-        self._on_lookup()
+        self._add_refs_to_first_panel([Reference(book_en, ko, chapter, verse, verse)])
 
     # ---- 사전 ----
 
@@ -1788,8 +2647,9 @@ class MainWindow(QMainWindow):
             lines = []
             for translation, book_en, chapter, msg in failures:
                 label = CrossBibleFetcher.TRANSLATION_LABELS.get(translation, translation)
-                ko = en_to_ko.get(book_en, book_en)
-                lines.append(f"[{label}] {ko} {chapter}장 — {msg}")
+                name = _book_name(book_en, en_to_ko.get(book_en, book_en))
+                unit = "ch" if _CURRENT_LANG == "en" else "장"
+                lines.append(f"[{label}] {name} {chapter}{unit} — {msg}")
             mbox.setDetailedText("\n".join(lines))
 
         mbox.exec()
@@ -1826,4 +2686,5 @@ def run():
 
     win = MainWindow(storage, fetcher, settings)
     win.show()
+    _OPEN_WINDOWS.append(win)
     sys.exit(app.exec())

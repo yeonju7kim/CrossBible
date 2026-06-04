@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS notes (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (book_en, chapter, verse)
 );
+CREATE TABLE IF NOT EXISTS library (
+    name TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS chapter_downloads (
     translation TEXT NOT NULL,
     book_en TEXT NOT NULL,
@@ -99,6 +104,17 @@ class Storage:
                 [(translation, book_en, chapter, n, t) for n, t in verses],
             )
             self.conn.commit()
+
+    def get_chapter_verses(self, translation: str, book_en: str, chapter: int) -> list[tuple[int, str]]:
+        """한 장에 대해 캐시된 모든 절을 절 번호 순으로 반환 (없으면 빈 리스트)."""
+        with self._lock:
+            cur = self.conn.execute(
+                "SELECT verse, text FROM verses WHERE translation=? AND book_en=? AND chapter=? "
+                "ORDER BY verse",
+                (translation, book_en, chapter),
+            )
+            rows = cur.fetchall()
+        return [(int(n), str(t)) for n, t in rows]
 
     def chapter_cached(self, translation: str, book_en: str, chapter: int) -> bool:
         with self._lock:
@@ -273,4 +289,35 @@ class Storage:
                     "text=excluded.text, updated_at=excluded.updated_at",
                     (book_en, chapter, verse, text),
                 )
+            self.conn.commit()
+
+    # ---- 라이브러리 (구절 모음 저장/불러오기) ----
+
+    def save_collection(self, name: str, payload: str) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO library(name, payload, updated_at) VALUES (?,?, datetime('now')) "
+                "ON CONFLICT(name) DO UPDATE SET payload=excluded.payload, updated_at=excluded.updated_at",
+                (name, payload),
+            )
+            self.conn.commit()
+
+    def list_collections(self) -> list[tuple[str, str]]:
+        """저장된 모음 (name, updated_at) 목록 — 최근 수정 순."""
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT name, updated_at FROM library ORDER BY updated_at DESC, name"
+            ).fetchall()
+        return [(str(n), str(u)) for n, u in rows]
+
+    def load_collection(self, name: str) -> str | None:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT payload FROM library WHERE name=?", (name,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def delete_collection(self, name: str) -> None:
+        with self._lock:
+            self.conn.execute("DELETE FROM library WHERE name=?", (name,))
             self.conn.commit()

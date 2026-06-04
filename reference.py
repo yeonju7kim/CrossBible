@@ -11,15 +11,20 @@ class Reference:
     chapter: int
     verse_start: int
     verse_end: int
+    whole_chapter: bool = False
 
     @property
     def header_en(self) -> str:
+        if self.whole_chapter:
+            return f"{self.book_en} {self.chapter}"
         if self.verse_start == self.verse_end:
             return f"{self.book_en} {self.chapter}:{self.verse_start}"
         return f"{self.book_en} {self.chapter}:{self.verse_start}-{self.verse_end}"
 
     @property
     def header_ko(self) -> str:
+        if self.whole_chapter:
+            return f"{self.book_ko} {self.chapter}장"
         if self.verse_start == self.verse_end:
             return f"{self.book_ko} {self.chapter}:{self.verse_start}"
         return f"{self.book_ko} {self.chapter}:{self.verse_start}-{self.verse_end}"

@@ -81,36 +81,6 @@ BIBLEHUB_BOOK_SLUGS = {
     "Jude": "jude", "Revelation": "revelation",
 }
 
-# bible.com (YouVersion) 책 약어 — 우리말성경(WLB) 등 다국어 공통.
-YOUVERSION_BOOK_CODES = {
-    "Genesis": "GEN", "Exodus": "EXO", "Leviticus": "LEV", "Numbers": "NUM",
-    "Deuteronomy": "DEU", "Joshua": "JOS", "Judges": "JDG", "Ruth": "RUT",
-    "1 Samuel": "1SA", "2 Samuel": "2SA", "1 Kings": "1KI", "2 Kings": "2KI",
-    "1 Chronicles": "1CH", "2 Chronicles": "2CH", "Ezra": "EZR",
-    "Nehemiah": "NEH", "Esther": "EST", "Job": "JOB", "Psalms": "PSA",
-    "Proverbs": "PRO", "Ecclesiastes": "ECC", "Song of Songs": "SNG",
-    "Isaiah": "ISA", "Jeremiah": "JER", "Lamentations": "LAM",
-    "Ezekiel": "EZK", "Daniel": "DAN", "Hosea": "HOS", "Joel": "JOL",
-    "Amos": "AMO", "Obadiah": "OBA", "Jonah": "JON", "Micah": "MIC",
-    "Nahum": "NAM", "Habakkuk": "HAB", "Zephaniah": "ZEP", "Haggai": "HAG",
-    "Zechariah": "ZEC", "Malachi": "MAL",
-    "Matthew": "MAT", "Mark": "MRK", "Luke": "LUK", "John": "JHN",
-    "Acts": "ACT", "Romans": "ROM", "1 Corinthians": "1CO",
-    "2 Corinthians": "2CO", "Galatians": "GAL", "Ephesians": "EPH",
-    "Philippians": "PHP", "Colossians": "COL",
-    "1 Thessalonians": "1TH", "2 Thessalonians": "2TH",
-    "1 Timothy": "1TI", "2 Timothy": "2TI", "Titus": "TIT",
-    "Philemon": "PHM", "Hebrews": "HEB", "James": "JAS",
-    "1 Peter": "1PE", "2 Peter": "2PE", "1 John": "1JN", "2 John": "2JN",
-    "3 John": "3JN", "Jude": "JUD", "Revelation": "REV",
-}
-
-# YouVersion 번역본 ID. WLB(우리말성경) = 2308.
-YOUVERSION_VERSIONS = {
-    "WLB": 2308,
-}
-
-
 USER_AGENT = "Mozilla/5.0 (CrossBible study app)"
 HEADERS = {"User-Agent": USER_AGENT}
 
@@ -168,9 +138,10 @@ class BibleGatewayFetcher:
             for n in matched:
                 verses[n] = (verses.get(n, "") + " " + text).strip()
 
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"Bible Gateway 누락 절 {missing} ({ref.header_en} {version})")
+        # 범위 안에 실제로 없는 절(예: 디모데후서 1장은 18절까지)은 그냥 건너뛴다.
+        # 본문을 하나도 못 찾았을 때만 실패로 처리.
+        if not verses:
+            raise RuntimeError(f"Bible Gateway: 본문을 찾지 못함 ({ref.header_en} {version})")
         return sorted(verses.items())
 
     @staticmethod
@@ -263,9 +234,8 @@ class BsKoreaFetcher:
             if text:
                 verses[n] = text
 
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"대한성서공회 누락 절 {missing} ({ref.header_ko})")
+        if not verses:
+            raise RuntimeError(f"대한성서공회: 본문을 찾지 못함 ({ref.header_ko})")
         return sorted(verses.items())
 
     @staticmethod
@@ -296,63 +266,6 @@ class BsKoreaFetcher:
         return sorted(verses.items())
 
 
-# ---------- YouVersion (bible.com): 우리말성경 ----------
-
-class YouVersionFetcher:
-    """bible.com 의 정적 HTML 페이지에서 본문 추출.
-
-    URL 예: https://www.bible.com/bible/2308/GEN.1.WLB
-    페이지 안에 ``"reference":{...}, "content":"…"`` 형태의 JSON 조각이
-    포함되어 있어 그 안에서 절 단위 텍스트를 뽑는다.
-    """
-
-    BASE = "https://www.bible.com/bible"
-
-    def fetch(self, ref: Reference, version: str = "WLB") -> list[tuple[int, str]]:
-        version_id = YOUVERSION_VERSIONS.get(version)
-        if version_id is None:
-            raise RuntimeError(f"YouVersion version 미지원: {version}")
-        slug = YOUVERSION_BOOK_CODES.get(ref.book_en)
-        if slug is None:
-            raise RuntimeError(f"YouVersion 책 코드 없음: {ref.book_en}")
-        url = f"{self.BASE}/{version_id}/{slug}.{ref.chapter}.{version}"
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        r.raise_for_status()
-        return self._parse(r.text, ref)
-
-    @staticmethod
-    def _parse(html: str, ref: Reference) -> list[tuple[int, str]]:
-        soup = BeautifulSoup(html, "html.parser")
-
-        verses: dict[int, str] = {}
-        # bible.com 본문은 <span class="verse vN">… 형태로 절 단위 표시.
-        for span in soup.select("span.verse"):
-            classes = span.get("class", [])
-            num = None
-            for c in classes:
-                m = re.match(r"^v(\d+)$", c)
-                if m:
-                    num = int(m.group(1))
-                    break
-            if num is None:
-                continue
-            if not (ref.verse_start <= num <= ref.verse_end):
-                continue
-            for label in span.select("span.label"):
-                label.decompose()
-            for note in span.select("span.note, span.footnote, span.heading"):
-                note.decompose()
-            text = span.get_text(separator="", strip=False)
-            text = re.sub(r"\s+", " ", text).strip()
-            if text:
-                verses[num] = (verses.get(num, "") + " " + text).strip()
-
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"YouVersion 누락 절 {missing} ({ref.header_ko})")
-        return sorted(verses.items())
-
-
 # ---------- nocr.net: 우리말성경 (WLB) ----------
 
 class NocrFetcher:
@@ -368,9 +281,8 @@ class NocrFetcher:
         all_verses = dict(self.fetch_chapter(ref.book_en, ref.chapter))
         result = [(n, t) for n, t in sorted(all_verses.items())
                   if ref.verse_start <= n <= ref.verse_end]
-        missing = [n for n in ref.verse_numbers() if n not in {n for n, _ in result}]
-        if missing:
-            raise RuntimeError(f"우리말성경 누락 절 {missing} ({ref.header_ko})")
+        if not result:
+            raise RuntimeError(f"우리말성경: 본문을 찾지 못함 ({ref.header_ko})")
         return result
 
     def fetch_chapter(self, book_en: str, chapter: int) -> list[tuple[int, str]]:
@@ -566,7 +478,6 @@ class CrossBibleFetcher:
         self.storage = storage
         self.bg = BibleGatewayFetcher()
         self.bsk = BsKoreaFetcher()
-        self.yv = YouVersionFetcher()  # legacy, currently unused
         self.nocr = NocrFetcher()
         self.interlinear = BibleHubInterlinearFetcher()
         self.commentary = BibleHubCommentaryFetcher()
@@ -670,10 +581,35 @@ class CrossBibleFetcher:
 
     # ---- 본문 ----
 
-    def get_verses(self, translation: str, ref: Reference) -> list[tuple[int, str]]:
-        cached = self.storage.get_verses(translation, ref)
-        if cached is not None:
-            return cached
+    def get_whole_chapter(self, translation: str, book_en: str, chapter: int,
+                          force: bool = False) -> list[tuple[int, str]]:
+        """장 전체 조회. 캐시에 있으면 그대로, 없으면 챕터 단위로 받아 캐시.
+
+        force=True 면 캐시를 무시하고 다시 받아 덮어쓴다 (오래되거나 누락된 장 갱신).
+        """
+        if not force:
+            cached = self.storage.get_chapter_verses(translation, book_en, chapter)
+            if cached:
+                return cached
+        self._throttle()
+        verses = self.fetch_chapter(translation, book_en, chapter)
+        if verses:
+            self.storage.put_verses(translation, book_en, chapter, verses)
+        return verses
+
+    def get_cached(self, translation: str, ref: Reference) -> list[tuple[int, str]] | None:
+        """캐시에만 있으면 즉시 반환, 없으면 None. 네트워크/throttle 없음 (UI 스레드용)."""
+        if ref.whole_chapter:
+            return self.storage.get_chapter_verses(translation, ref.book_en, ref.chapter) or None
+        return self.storage.get_verses(translation, ref)
+
+    def get_verses(self, translation: str, ref: Reference, force: bool = False) -> list[tuple[int, str]]:
+        if ref.whole_chapter:
+            return self.get_whole_chapter(translation, ref.book_en, ref.chapter, force=force)
+        if not force:
+            cached = self.storage.get_verses(translation, ref)
+            if cached is not None:
+                return cached
         self._throttle()
         if translation == "GAE":
             verses = self.bsk.fetch(ref, "GAE")
