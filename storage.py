@@ -37,6 +37,12 @@ CREATE TABLE IF NOT EXISTS notes (
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (book_en, chapter, verse)
 );
+CREATE TABLE IF NOT EXISTS chapter_downloads (
+    translation TEXT NOT NULL,
+    book_en TEXT NOT NULL,
+    chapter INTEGER NOT NULL,
+    PRIMARY KEY (translation, book_en, chapter)
+);
 """
 
 
@@ -54,7 +60,21 @@ class Storage:
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self._lock = threading.Lock()
         with self._lock:
+            pre_existing = {
+                r[0] for r in self.conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
             self.conn.executescript(SCHEMA)
+            # 구버전 캐시(verses 는 있는데 chapter_downloads 가 없던 DB)를 처음 열 때
+            # 딱 한 번, 기존에 캐시된 장들을 '다운로드됨'으로 표시해서 업그레이드 직후
+            # 전체 재다운로드가 일어나지 않게 한다. (부분 캐시도 포함될 수 있으나 기존
+            # 동작을 그대로 유지하는 절충 — 이후의 단일 조회는 더 이상 장을 표시하지 않는다.)
+            if "verses" in pre_existing and "chapter_downloads" not in pre_existing:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO chapter_downloads(translation, book_en, chapter) "
+                    "SELECT DISTINCT translation, book_en, chapter FROM verses"
+                )
             self.conn.commit()
 
     # ---- verse text cache ----
@@ -87,6 +107,23 @@ class Storage:
                 (translation, book_en, chapter),
             )
             return cur.fetchone() is not None
+
+    def chapter_downloaded(self, translation: str, book_en: str, chapter: int) -> bool:
+        """장 전체를 받은 적이 있는지. 단일 절 조회로 생긴 부분 캐시와 구분된다."""
+        with self._lock:
+            cur = self.conn.execute(
+                "SELECT 1 FROM chapter_downloads WHERE translation=? AND book_en=? AND chapter=? LIMIT 1",
+                (translation, book_en, chapter),
+            )
+            return cur.fetchone() is not None
+
+    def mark_chapter_downloaded(self, translation: str, book_en: str, chapter: int) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO chapter_downloads(translation, book_en, chapter) VALUES (?,?,?)",
+                (translation, book_en, chapter),
+            )
+            self.conn.commit()
 
     def search(
         self,
@@ -136,7 +173,7 @@ class Storage:
             try:
                 # 다른 DB가 같은 스키마인지 확인
                 rows = self.conn.execute(
-                    "SELECT name FROM ext.sqlite_master WHERE type='table' AND name IN ('verses','verse_blob')"
+                    "SELECT name FROM ext.sqlite_master WHERE type='table' AND name IN ('verses','verse_blob','chapter_downloads')"
                 ).fetchall()
                 tables = {r[0] for r in rows}
                 if "verses" not in tables:
@@ -149,6 +186,11 @@ class Storage:
                     self.conn.execute(
                         "INSERT OR IGNORE INTO verse_blob "
                         "SELECT kind, book_en, chapter, verse, payload FROM ext.verse_blob"
+                    )
+                if "chapter_downloads" in tables:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO chapter_downloads "
+                        "SELECT translation, book_en, chapter FROM ext.chapter_downloads"
                     )
                 self.conn.commit()
             finally:
