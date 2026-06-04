@@ -95,7 +95,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.problem_title": "구절 입력 확인",
         "parse.problem_unparsed": "해석하지 못한 구절: {tokens}",
         "parse.problem_too_big": "한 번에 20절을 넘어 제외함: {tokens}",
-        "passage.remove_tooltip": "이 구절을 화면에서 제거",
+        "passage.remove_tooltip": "이 패널을 화면에서 제거",
+        "passage.move_left_tooltip": "패널을 왼쪽으로 이동",
+        "passage.move_right_tooltip": "패널을 오른쪽으로 이동",
+        "passage.split_tooltip": "이 패널을 두 개로 나누기",
+        "passage.max_title": "패널 한도",
+        "passage.max_body": "패널은 최대 {n}개까지 표시할 수 있어요.",
+        "passage.max_reached": "패널은 최대 {n}개 — 처음 {n}개만 표시합니다.",
+        "split.title": "패널 나누기",
+        "split.label": "{lo}~{hi} 중, 어느 절 뒤에서 나눌까요?",
+        "split.need_text": "본문을 받은 뒤에 나눌 수 있어요. 잠시 후 다시 시도해 주세요.",
+        "split.too_small": "한 절짜리는 나눌 수 없어요.",
         "menu.library": "라이브러리",
         "library.save": "현재 구절 저장…",
         "library.open": "불러오기 / 관리…",
@@ -275,7 +285,17 @@ STRINGS: dict[str, dict[str, str]] = {
         "parse.problem_title": "Check your references",
         "parse.problem_unparsed": "Could not parse: {tokens}",
         "parse.problem_too_big": "Skipped (over 20 verses at once): {tokens}",
-        "passage.remove_tooltip": "Remove this passage from the view",
+        "passage.remove_tooltip": "Remove this panel from the view",
+        "passage.move_left_tooltip": "Move panel left",
+        "passage.move_right_tooltip": "Move panel right",
+        "passage.split_tooltip": "Split this panel into two",
+        "passage.max_title": "Panel limit",
+        "passage.max_body": "You can show at most {n} panels.",
+        "passage.max_reached": "Max {n} panels — showing the first {n}.",
+        "split.title": "Split panel",
+        "split.label": "Split after which verse? (range {lo}-{hi})",
+        "split.need_text": "You can split once the text has loaded. Try again shortly.",
+        "split.too_small": "A single verse can't be split.",
         "menu.library": "Library",
         "library.save": "Save current passages…",
         "library.open": "Open / manage…",
@@ -1352,6 +1372,8 @@ def _wrap_in_scroll(content: QWidget) -> QScrollArea:
 # ---------- 메인 윈도우 ----------
 
 class MainWindow(QMainWindow):
+    MAX_PASSAGES = 4
+
     def __init__(self, storage: Storage, fetcher: CrossBibleFetcher, settings: QSettings):
         super().__init__()
         self.storage = storage
@@ -1367,7 +1389,6 @@ class MainWindow(QMainWindow):
         self._verse_data: dict[tuple[int, str], list] = {}
         self._verse_errors: dict[tuple[int, str], str] = {}
         self._passage_verses: dict[int, list[int]] = {}
-        self._side_built: set[int] = set()
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1603,13 +1624,13 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
         return row
 
-    def _build_translations_column(self) -> QScrollArea:
+    def _build_translations_column(self) -> QWidget:
+        # 구절 패널들을 좌→우로 나란히 (최대 4). 각 패널은 자체 세로 스크롤을 가진다.
         self._translations_container = QWidget()
-        self._left_layout = QVBoxLayout(self._translations_container)
+        self._left_layout = QHBoxLayout(self._translations_container)
         self._left_layout.setContentsMargins(0, 0, 0, 0)
-        self._left_layout.setSpacing(0)
-        self._left_layout.addStretch(1)
-        return _wrap_in_scroll(self._translations_container)
+        self._left_layout.setSpacing(6)
+        return self._translations_container
 
     def _build_side_column(self) -> QWidget:
         wrapper = QWidget()
@@ -1649,7 +1670,7 @@ class MainWindow(QMainWindow):
         return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def _clear_left(self):
-        while self._left_layout.count() > 1:  # 마지막 stretch 는 유지
+        while self._left_layout.count():
             item = self._left_layout.takeAt(0)
             w = item.widget()
             if w is not None:
@@ -1670,7 +1691,6 @@ class MainWindow(QMainWindow):
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
-        self._side_built = set()
 
     def _start_view(self, passages: list[Reference], force: bool = False):
         # 진행 중 본문 워커는 기다리지 않고 분리한다. blockSignals 만으로는 '이미 큐에
@@ -1689,8 +1709,12 @@ class MainWindow(QMainWindow):
             self._thread = None
 
         # 같은 구절 중복 제거 (＋추가 를 여러 번 눌러도 한 번만 — Reference 는 frozen
-        # dataclass 라 값이 같으면 동일 키). 순서는 유지.
-        self._passages = list(dict.fromkeys(passages))
+        # dataclass 라 값이 같으면 동일 키). 순서는 유지. 최대 MAX_PASSAGES 개로 제한.
+        deduped = list(dict.fromkeys(passages))
+        if len(deduped) > self.MAX_PASSAGES:
+            deduped = deduped[:self.MAX_PASSAGES]
+            self.statusBar().showMessage(tr("passage.max_reached", n=self.MAX_PASSAGES), 4000)
+        self._passages = deduped
         self._verse_data = {}
         self._verse_errors = {}
         self._passage_verses = {}
@@ -1710,13 +1734,12 @@ class MainWindow(QMainWindow):
             tr("status.looking_up", ref_ko=head, ref_en=self._passages[0].header_en)
         )
 
-        # 범위 passage 의 절 번호는 미리 알 수 있어 우측 블록을 즉시 만든다.
-        # 장 전체는 본문이 도착해야 절 수를 알 수 있어 그때 만든다.
+        # 범위 passage 의 절 번호는 미리 알 수 있다. 장 전체는 본문 도착 후 결정.
         for pi, ref in enumerate(self._passages):
             if not ref.whole_chapter:
                 self._passage_verses[pi] = ref.verse_numbers()
-                self._build_side_for_passage(pi, ref, self._passage_verses[pi])
 
+        self._rebuild_side()
         self._render_left()
 
         enabled = self._enabled_translations()
@@ -1751,41 +1774,63 @@ class MainWindow(QMainWindow):
         enabled = self._enabled_translations()
         self._translations_container.setUpdatesEnabled(False)
         try:
-            insert = self._left_layout.count() - 1
             for pi, ref in enumerate(self._passages):
-                section = self._render_passage_section(pi, ref, enabled)
-                self._left_layout.insertWidget(insert, section)
-                insert += 1
+                self._left_layout.addWidget(self._render_passage_column(pi, ref, enabled), 1)
         finally:
             self._translations_container.setUpdatesEnabled(True)
 
-    def _render_passage_section(self, pi: int, ref: Reference, enabled: list[str]) -> QWidget:
-        box = QWidget()
-        lay = QVBoxLayout(box)
-        lay.setContentsMargins(8, 10, 8, 6)
-        lay.setSpacing(4)
+    def _render_passage_column(self, pi: int, ref: Reference, enabled: list[str]) -> QWidget:
+        col = QWidget()
+        cv = QVBoxLayout(col)
+        cv.setContentsMargins(4, 6, 4, 4)
+        cv.setSpacing(3)
 
+        # 헤더: 제목 + ◀ ▶ ✂ ✕ 버튼
         header = QHBoxLayout()
-        header.addWidget(_section_label(f"{ref.header_ko}  ({ref.header_en})", level=1))
+        header.setSpacing(2)
+        header.addWidget(_section_label(ref.header_ko, level=2))
         header.addStretch(1)
-        rm = QPushButton("✕")
-        rm.setFixedSize(26, 24)
-        rm.setToolTip(tr("passage.remove_tooltip"))
-        rm.clicked.connect(lambda _c=False, p=pi: self._remove_passage(p))
-        header.addWidget(rm)
-        lay.addLayout(header)
+        last = len(self._passages) - 1
+        controls = [
+            ("◀", tr("passage.move_left_tooltip"),
+             lambda _c=False, p=pi: self._move_passage(p, -1), pi > 0),
+            ("▶", tr("passage.move_right_tooltip"),
+             lambda _c=False, p=pi: self._move_passage(p, +1), pi < last),
+            ("✂", tr("passage.split_tooltip"),
+             lambda _c=False, p=pi: self._split_passage(p), True),
+            ("✕", tr("passage.remove_tooltip"),
+             lambda _c=False, p=pi: self._remove_passage(p), True),
+        ]
+        for text, tip, slot, on in controls:
+            b = QPushButton(text)
+            b.setFixedSize(24, 22)
+            b.setToolTip(tip)
+            b.setEnabled(on)
+            b.clicked.connect(slot)
+            header.addWidget(b)
+        cv.addLayout(header)
 
+        sub = QLabel(ref.header_en)
+        sub.setStyleSheet("color:#888; font-size:9pt;")
+        cv.addWidget(sub)
+
+        # 내용 — 자체 세로 스크롤 (번갈아보기 / 번역본 단위)
+        inner = QWidget()
+        iv = QVBoxLayout(inner)
+        iv.setContentsMargins(0, 0, 0, 0)
+        iv.setSpacing(4)
         if self.interleave_check.isChecked():
             verses = self._passage_verse_set(pi, enabled, ref)
             if not verses:
-                lay.addWidget(self._muted(tr("verse.loading")))
+                iv.addWidget(self._muted(tr("verse.loading")))
             for n in verses:
-                lay.addWidget(self._interleave_widget(pi, n, enabled))
+                iv.addWidget(self._interleave_widget(pi, n, enabled))
         else:
             for t in enabled:
-                lay.addWidget(self._translation_subblock(pi, t))
-        lay.addWidget(_hline())
-        return box
+                iv.addWidget(self._translation_subblock(pi, t))
+        iv.addStretch(1)
+        cv.addWidget(_wrap_in_scroll(inner), 1)
+        return col
 
     @staticmethod
     def _muted(text: str) -> QLabel:
@@ -1866,11 +1911,20 @@ class MainWindow(QMainWindow):
 
     # ---- 우측(원어/주석/메모) 빌드 ----
 
-    def _build_side_for_passage(self, pi: int, ref: Reference, verses: list[int]):
-        if pi in self._side_built:
-            return
-        self._side_built.add(pi)
+    def _rebuild_side(self):
+        """우측 패널을 항상 passage 순서대로 통째로 다시 만든다.
 
+        장 전체는 본문 도착 후에야 절 수를 알 수 있어 시점이 늦는데, 순서를 보장하려면
+        '도착하는 대로 뒤에 붙이기'가 아니라 매번 passage 순서대로 재구성해야 한다.
+        (재정렬·삭제·split 후에도 이 한 메서드로 우측이 맞춰진다.)
+        """
+        self._clear_side()
+        for pi, ref in enumerate(self._passages):
+            verses = self._passage_verses.get(pi)
+            if verses:
+                self._append_side_passage(pi, ref, verses)
+
+    def _append_side_passage(self, pi: int, ref: Reference, verses: list[int]):
         insert = self._side_layout.count() - 1
         header = _section_label(f"{ref.header_ko}  ({ref.header_en})", level=1)
         self._side_layout.insertWidget(insert, header)
@@ -1954,6 +2008,11 @@ class MainWindow(QMainWindow):
             return
         if not self._range_ok(ref):
             return
+        if len(self._passages) >= self.MAX_PASSAGES:
+            QMessageBox.information(
+                self, tr("passage.max_title"), tr("passage.max_body", n=self.MAX_PASSAGES)
+            )
+            return
         self._start_view(self._passages + [ref])
 
     def _on_refresh(self):
@@ -1964,6 +2023,44 @@ class MainWindow(QMainWindow):
     def _remove_passage(self, pi: int):
         if 0 <= pi < len(self._passages):
             self._start_view(self._passages[:pi] + self._passages[pi + 1:])
+
+    def _move_passage(self, pi: int, delta: int):
+        j = pi + delta
+        if 0 <= pi < len(self._passages) and 0 <= j < len(self._passages):
+            ps = list(self._passages)
+            ps[pi], ps[j] = ps[j], ps[pi]
+            self._start_view(ps)
+
+    def _split_passage(self, pi: int):
+        """패널의 절 범위를 위/아래 둘로 나눈다 ([lo..k], [k+1..hi])."""
+        if not (0 <= pi < len(self._passages)):
+            return
+        if len(self._passages) >= self.MAX_PASSAGES:
+            QMessageBox.information(
+                self, tr("passage.max_title"), tr("passage.max_body", n=self.MAX_PASSAGES)
+            )
+            return
+        ref = self._passages[pi]
+        if ref.whole_chapter:
+            verses = self._passage_verses.get(pi)
+            if not verses:
+                QMessageBox.information(self, tr("split.title"), tr("split.need_text"))
+                return
+            lo, hi = verses[0], verses[-1]
+        else:
+            lo, hi = ref.verse_start, ref.verse_end
+        if hi - lo < 1:
+            QMessageBox.information(self, tr("split.title"), tr("split.too_small"))
+            return
+        k, ok = QInputDialog.getInt(
+            self, tr("split.title"), tr("split.label", lo=lo, hi=hi),
+            (lo + hi) // 2, lo, hi - 1,
+        )
+        if not ok:
+            return
+        a = Reference(ref.book_en, ref.book_ko, ref.chapter, lo, k)
+        b = Reference(ref.book_en, ref.book_ko, ref.chapter, k + 1, hi)
+        self._start_view(self._passages[:pi] + [a, b] + self._passages[pi + 1:])
 
     # ---- 라이브러리 ----
 
@@ -2040,7 +2137,7 @@ class MainWindow(QMainWindow):
             nums = [n for n, _ in verses]
             if nums:
                 self._passage_verses[pi] = nums
-                self._build_side_for_passage(pi, self._passages[pi], nums)
+                self._rebuild_side()  # 순서 보장 위해 passage 순서대로 재구성
         self._render_left()
 
     def _on_verses_error(self, pi: int, translation: str, message: str):
