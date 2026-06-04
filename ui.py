@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
@@ -104,7 +105,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.move_up": "위로 (패널 안 순서)",
         "block.move_down": "아래로 (패널 안 순서)",
         "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
-        "panel.remove_tooltip": "빈 패널 삭제",
+        "panel.remove_tooltip": "이 패널 삭제 (구절 포함)",
         "passage.max_title": "패널 한도",
         "passage.max_body": "패널은 최대 {n}개까지예요.",
         "passage.max_reached": "패널은 최대 {n}개 — 처음 {n}개만 표시합니다.",
@@ -157,6 +158,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "lookup.range_too_big_title": "범위 큼",
         "lookup.range_too_big_body": "한 번에 20절 이하로 조회해 주세요.",
         "menu.settings": "설정",
+        "menu.new_window": "새 창 (Ctrl+N)",
         "menu.tools": "도구",
         "menu.theme": "테마",
         "menu.language": "언어",
@@ -300,7 +302,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.move_up": "Move up (within panel)",
         "block.move_down": "Move down (within panel)",
         "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
-        "panel.remove_tooltip": "Delete empty panel",
+        "panel.remove_tooltip": "Delete this panel (with its passages)",
         "passage.max_title": "Panel limit",
         "passage.max_body": "At most {n} panels.",
         "passage.max_reached": "Max {n} panels — showing the first {n}.",
@@ -353,6 +355,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "lookup.range_too_big_title": "Range too big",
         "lookup.range_too_big_body": "Please look up at most 20 verses at a time.",
         "menu.settings": "Settings",
+        "menu.new_window": "New window (Ctrl+N)",
         "menu.tools": "Tools",
         "menu.theme": "Theme",
         "menu.language": "Language",
@@ -475,6 +478,15 @@ def tr(key: str, **kwargs) -> str:
     return value
 
 
+# ---------- 패널 모델 ----------
+
+@dataclass
+class Panel:
+    """세로 구절 묶음. blocks 는 위→아래 구절 순서, interleave 는 패널별 번갈아보기."""
+    blocks: list[Reference] = field(default_factory=list)
+    interleave: bool = False
+
+
 # ---------- 라이브러리 직렬화 ----------
 
 def _ref_to_dict(r: Reference) -> dict:
@@ -510,6 +522,38 @@ def deserialize_refs(payload: str) -> list[Reference]:
             out.append(_ref_from_dict(d))
         except Exception:
             continue
+    return out
+
+
+def serialize_panels(panels: list[Panel]) -> str:
+    return json.dumps(
+        [{"interleave": p.interleave, "blocks": [_ref_to_dict(r) for r in p.blocks]}
+         for p in panels],
+        ensure_ascii=False,
+    )
+
+
+def deserialize_panels(payload: str) -> list[Panel]:
+    """패널 구조 복원. 구버전(평면 구절 리스트) 저장본은 각 구절을 패널 하나로."""
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return []
+    out: list[Panel] = []
+    for item in data:
+        if isinstance(item, dict) and "blocks" in item:  # 신버전: 패널
+            blocks = []
+            for d in item["blocks"]:
+                try:
+                    blocks.append(_ref_from_dict(d))
+                except Exception:
+                    continue
+            out.append(Panel(blocks, bool(item.get("interleave", False))))
+        else:  # 구버전: 구절 하나 → 패널 하나
+            try:
+                out.append(Panel([_ref_from_dict(item)]))
+            except Exception:
+                continue
     return out
 
 
@@ -1047,7 +1091,7 @@ class LibraryDialog(QDialog):
         self.table.setRowCount(len(rows))
         for i, (name, updated) in enumerate(rows):
             payload = self.storage.load_collection(name) or "[]"
-            count = len(deserialize_refs(payload))
+            count = sum(len(p.blocks) for p in deserialize_panels(payload))
             name_item = QTableWidgetItem(name)
             name_item.setData(Qt.ItemDataRole.UserRole, name)
             self.table.setItem(i, 0, name_item)
@@ -1072,10 +1116,10 @@ class LibraryDialog(QDialog):
         name = self._selected_name()
         if name is None:
             return
-        refs = deserialize_refs(self.storage.load_collection(name) or "[]")
-        if not refs:
+        panels = deserialize_panels(self.storage.load_collection(name) or "[]")
+        if not panels:
             return
-        (self.load_replace if replace else self.load_add).emit(refs)
+        (self.load_replace if replace else self.load_add).emit(panels)
         self.accept()
 
     def _delete(self):
@@ -1385,6 +1429,10 @@ def _wrap_in_scroll(content: QWidget) -> QScrollArea:
 
 # ---------- 메인 윈도우 ----------
 
+# 열려 있는 창들을 붙잡아 둔다 (참조가 사라지면 GC 되므로). 새 창을 Ctrl+N 으로 연다.
+_OPEN_WINDOWS: list = []
+
+
 class MainWindow(QMainWindow):
     MAX_PANELS = 4  # 가로 패널(세로 구절 묶음) 최대 개수
 
@@ -1401,7 +1449,7 @@ class MainWindow(QMainWindow):
         # 패널(세로 구절 묶음)들. 좌측 가로 배치의 원본. self._passages 는 이를
         # 읽기 순서(좌→우, 위→아래)로 펼친 평면 리스트(우측 패널 순서용).
         # 본문/오류/절목록은 위치가 아니라 Reference 로 키잉 → 순서를 바꿔도 재사용.
-        self._panels: list[list[Reference]] = []
+        self._panels: list[Panel] = []
         self._passages: list[Reference] = []
         self._verse_data: dict[tuple[Reference, str], list] = {}
         self._verse_errors: dict[tuple[Reference, str], str] = {}
@@ -1468,6 +1516,12 @@ class MainWindow(QMainWindow):
             lang_menu.addAction(action)
 
         tools_menu = bar.addMenu(tr("menu.tools"))
+        new_win_action = QAction(tr("menu.new_window"), self)
+        new_win_action.setShortcut(QKeySequence("Ctrl+N"))
+        new_win_action.triggered.connect(self._on_new_window)
+        tools_menu.addAction(new_win_action)
+        tools_menu.addSeparator()
+
         dl_action = QAction(tr("menu.download_all"), self)
         dl_action.triggered.connect(self._on_download_all)
         tools_menu.addAction(dl_action)
@@ -1520,6 +1574,12 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_theme(app, theme)
+
+    def _on_new_window(self):
+        # 같은 storage/fetcher/settings 를 공유하는 새 창을 연다 (캐시·메모 공유).
+        win = MainWindow(self.storage, self.fetcher, self.settings)
+        win.show()
+        _OPEN_WINDOWS.append(win)
 
     def _on_language_chosen(self, lang: str):
         if lang == _CURRENT_LANG:
@@ -1638,11 +1698,6 @@ class MainWindow(QMainWindow):
             cb.toggled.connect(lambda checked, c=code: self._on_translation_toggled(c, checked))
             self.translation_checks[code] = cb
             row.addWidget(cb)
-        row.addSpacing(16)
-        self.interleave_check = QCheckBox(tr("filter.interleave"))
-        self.interleave_check.setToolTip(tr("filter.interleave_tooltip"))
-        self.interleave_check.toggled.connect(self._on_interleave_toggled)
-        row.addWidget(self.interleave_check)
         row.addStretch(1)
         return row
 
@@ -1709,19 +1764,19 @@ class MainWindow(QMainWindow):
         - 전역 중복 제거(같은 구절은 첫 등장만) · 빈 패널 유지 · 패널 최대 MAX_PANELS 개.
         """
         seen: set[Reference] = set()
-        norm: list[list[Reference]] = []
+        norm: list[Panel] = []
         for p in panels:
             blocks: list[Reference] = []
-            for ref in p:
+            for ref in p.blocks:
                 if ref not in seen:
                     seen.add(ref)
                     blocks.append(ref)
-            norm.append(blocks)
+            norm.append(Panel(blocks, p.interleave))
         if len(norm) > self.MAX_PANELS:
             norm = norm[:self.MAX_PANELS]
             self.statusBar().showMessage(tr("passage.max_reached", n=self.MAX_PANELS), 4000)
         self._panels = norm
-        flat = [ref for p in norm for ref in p]
+        flat = [ref for p in norm for ref in p.blocks]
         self._passages = flat
 
         # 화면에서 사라진 구절의 데이터는 정리 (메모리/혼선 방지)
@@ -1816,22 +1871,33 @@ class MainWindow(QMainWindow):
         finally:
             self._translations_container.setUpdatesEnabled(True)
 
-    def _render_panel(self, panel_idx: int, panel: list[Reference],
+    def _render_panel(self, panel_idx: int, panel: Panel,
                       enabled: list[str]) -> QWidget:
         col = QWidget()
         cv = QVBoxLayout(col)
         cv.setContentsMargins(4, 6, 4, 4)
         cv.setSpacing(3)
 
-        if not panel:  # 빈 패널 — 옮겨 담기 안내 + 패널 삭제
-            top = QHBoxLayout()
+        # 패널 상단 바: (번갈아보기 토글) + 패널 삭제 🗑
+        top = QHBoxLayout()
+        top.setSpacing(4)
+        if panel.blocks:
+            il = QCheckBox(tr("filter.interleave"))
+            il.setChecked(panel.interleave)
+            il.setToolTip(tr("filter.interleave_tooltip"))
+            il.toggled.connect(lambda ch, p=panel_idx: self._set_panel_interleave(p, ch))
+            top.addWidget(il)
+        else:
             top.addWidget(self._muted(tr("panel.empty")), 1)
-            delp = QPushButton("✕")
-            delp.setFixedSize(22, 20)
-            delp.setToolTip(tr("panel.remove_tooltip"))
-            delp.clicked.connect(lambda _c=False, p=panel_idx: self._remove_panel(p))
-            top.addWidget(delp)
-            cv.addLayout(top)
+        top.addStretch(1)
+        delp = QPushButton("🗑")
+        delp.setFixedSize(24, 20)
+        delp.setToolTip(tr("panel.remove_tooltip"))
+        delp.clicked.connect(lambda _c=False, p=panel_idx: self._remove_panel(p))
+        top.addWidget(delp)
+        cv.addLayout(top)
+
+        if not panel.blocks:
             cv.addStretch(1)
             return col
 
@@ -1839,16 +1905,16 @@ class MainWindow(QMainWindow):
         iv = QVBoxLayout(inner)
         iv.setContentsMargins(0, 0, 0, 0)
         iv.setSpacing(4)
-        for block_idx, ref in enumerate(panel):
-            iv.addWidget(self._render_block(panel_idx, block_idx, ref, enabled))
-            if block_idx < len(panel) - 1:
+        for block_idx, ref in enumerate(panel.blocks):
+            iv.addWidget(self._render_block(panel_idx, block_idx, ref, enabled, panel.interleave))
+            if block_idx < len(panel.blocks) - 1:
                 iv.addWidget(_hline())
         iv.addStretch(1)
         cv.addWidget(_wrap_in_scroll(inner), 1)
         return col
 
     def _render_block(self, panel_idx: int, block_idx: int,
-                      ref: Reference, enabled: list[str]) -> QWidget:
+                      ref: Reference, enabled: list[str], interleave: bool) -> QWidget:
         box = QWidget()
         bl = QVBoxLayout(box)
         bl.setContentsMargins(2, 2, 2, 2)
@@ -1861,7 +1927,7 @@ class MainWindow(QMainWindow):
 
         # 버튼: ◀ ▶ (패널 간 이동) · ↑ ↓ (패널 안 순서) · ✂ split · ✕ 제거
         n_panels = len(self._panels)
-        n_blocks = len(self._panels[panel_idx])
+        n_blocks = len(self._panels[panel_idx].blocks)
         controls = [
             ("◀", tr("block.move_left"),
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block_panel(p, b, -1), panel_idx > 0),
@@ -1888,7 +1954,7 @@ class MainWindow(QMainWindow):
             brow.addWidget(b)
         bl.addLayout(brow)
 
-        if self.interleave_check.isChecked():
+        if interleave:
             verses = self._passage_verse_set(ref, enabled)
             if not verses:
                 bl.addWidget(self._muted(tr("verse.loading")))
@@ -2084,14 +2150,14 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _copy_panels(self) -> list[list[Reference]]:
-        return [list(p) for p in self._panels]
+    def _copy_panels(self) -> list[Panel]:
+        return [Panel(list(p.blocks), p.interleave) for p in self._panels]
 
     def _on_lookup(self):
         ref = self._current_ref()
         if ref is None or not self._range_ok(ref):
             return
-        self._apply_panels([[ref]])  # 교체: 한 패널 한 구절
+        self._apply_panels([Panel([ref])])  # 교체: 한 패널 한 구절
 
     def _on_add(self):
         # ＋추가: 맨 왼쪽 패널에 쌓는다 (패널이 없으면 하나 만든다).
@@ -2100,9 +2166,9 @@ class MainWindow(QMainWindow):
             return
         panels = self._copy_panels()
         if panels:
-            panels[0].append(ref)
+            panels[0].blocks.append(ref)
         else:
-            panels = [[ref]]
+            panels = [Panel([ref])]
         self._apply_panels(panels)
 
     def _on_new_panel(self):
@@ -2111,7 +2177,7 @@ class MainWindow(QMainWindow):
                 self, tr("passage.max_title"), tr("passage.max_body", n=self.MAX_PANELS)
             )
             return
-        self._apply_panels(self._copy_panels() + [[]])
+        self._apply_panels(self._copy_panels() + [Panel([])])
 
     def _on_refresh(self):
         # 현재 화면의 구절을 캐시 무시하고 다시 가져온다 (오래되거나 누락된 본문 갱신).
@@ -2122,8 +2188,8 @@ class MainWindow(QMainWindow):
 
     def _remove_block(self, panel_idx: int, block_idx: int):
         panels = self._copy_panels()
-        if 0 <= panel_idx < len(panels) and 0 <= block_idx < len(panels[panel_idx]):
-            del panels[panel_idx][block_idx]
+        if 0 <= panel_idx < len(panels) and 0 <= block_idx < len(panels[panel_idx].blocks):
+            del panels[panel_idx].blocks[block_idx]
             self._apply_panels(panels)
 
     def _remove_panel(self, panel_idx: int):
@@ -2135,10 +2201,10 @@ class MainWindow(QMainWindow):
     def _move_block(self, panel_idx: int, block_idx: int, delta: int):
         # 패널 안에서 위/아래 순서 이동
         panels = self._copy_panels()
-        panel = panels[panel_idx]
+        blocks = panels[panel_idx].blocks
         j = block_idx + delta
-        if 0 <= block_idx < len(panel) and 0 <= j < len(panel):
-            panel[block_idx], panel[j] = panel[j], panel[block_idx]
+        if 0 <= block_idx < len(blocks) and 0 <= j < len(blocks):
+            blocks[block_idx], blocks[j] = blocks[j], blocks[block_idx]
             self._apply_panels(panels)
 
     def _move_block_panel(self, panel_idx: int, block_idx: int, delta: int):
@@ -2147,19 +2213,19 @@ class MainWindow(QMainWindow):
         if not (0 <= panel_idx < len(self._panels) and 0 <= q < len(self._panels)):
             return
         panels = self._copy_panels()
-        if not (0 <= block_idx < len(panels[panel_idx])):
+        if not (0 <= block_idx < len(panels[panel_idx].blocks)):
             return
-        ref = panels[panel_idx].pop(block_idx)
-        panels[q].append(ref)
+        ref = panels[panel_idx].blocks.pop(block_idx)
+        panels[q].blocks.append(ref)
         self._apply_panels(panels)
 
     def _split_block(self, panel_idx: int, block_idx: int):
         """블록의 절 범위를 위/아래 둘로 나눠 같은 패널에 쌓는다 ([lo..k], [k+1..hi])."""
         if not (0 <= panel_idx < len(self._panels)):
             return
-        if not (0 <= block_idx < len(self._panels[panel_idx])):
+        if not (0 <= block_idx < len(self._panels[panel_idx].blocks)):
             return
-        ref = self._panels[panel_idx][block_idx]
+        ref = self._panels[panel_idx].blocks[block_idx]
         if ref.whole_chapter:
             verses = self._passage_verses.get(ref)
             if not verses:
@@ -2180,7 +2246,7 @@ class MainWindow(QMainWindow):
         a = Reference(ref.book_en, ref.book_ko, ref.chapter, lo, k)
         b = Reference(ref.book_en, ref.book_ko, ref.chapter, k + 1, hi)
         panels = self._copy_panels()
-        panels[panel_idx][block_idx:block_idx + 1] = [a, b]
+        panels[panel_idx].blocks[block_idx:block_idx + 1] = [a, b]
         self._apply_panels(panels)
 
     # ---- 라이브러리 ----
@@ -2195,7 +2261,8 @@ class MainWindow(QMainWindow):
         name = name.strip()
         if not name:
             return
-        self.storage.save_collection(name, serialize_refs(self._passages))
+        # 패널 구조(위치·묶음·번갈아보기)까지 저장.
+        self.storage.save_collection(name, serialize_panels(self._panels))
         if self._library_dialog is not None:
             self._library_dialog.refresh()
         self.statusBar().showMessage(
@@ -2205,11 +2272,11 @@ class MainWindow(QMainWindow):
     def _on_library_open(self):
         if self._library_dialog is None:
             self._library_dialog = LibraryDialog(self.storage, self)
-            # 불러오기: 각 구절을 패널 하나씩. 추가: 맨 왼쪽 패널에 쌓기.
-            self._library_dialog.load_replace.connect(
-                lambda refs: self._apply_panels([[r] for r in refs])
+            # 불러오기: 저장된 패널 구조 그대로 교체. 추가: 그 패널들을 뒤에 붙임.
+            self._library_dialog.load_replace.connect(self._apply_panels)
+            self._library_dialog.load_add.connect(
+                lambda panels: self._apply_panels(self._copy_panels() + panels)
             )
-            self._library_dialog.load_add.connect(self._add_refs_to_first_panel)
         self._library_dialog.refresh()
         self._library_dialog.show()
         self._library_dialog.raise_()
@@ -2241,15 +2308,15 @@ class MainWindow(QMainWindow):
     def _add_refs_to_first_panel(self, refs: list[Reference]):
         panels = self._copy_panels()
         if not panels:
-            panels = [[]]
-        panels[0].extend(refs)
+            panels = [Panel([])]
+        panels[0].blocks.extend(refs)
         self._apply_panels(panels)
 
     def _on_multi_lookup(self):
         refs = self._parse_multi()
         if not refs:
             return
-        self._apply_panels([[r] for r in refs])  # 교체: 각 구절을 패널 하나씩
+        self._apply_panels([Panel([r]) for r in refs])  # 교체: 각 구절을 패널 하나씩
 
     def _on_multi_add(self):
         refs = self._parse_multi()
@@ -2285,8 +2352,11 @@ class MainWindow(QMainWindow):
             tr("selector.side_on") if checked else tr("selector.side_off")
         )
 
-    def _on_interleave_toggled(self, _checked: bool):
-        self._render_left()
+    def _set_panel_interleave(self, panel_idx: int, checked: bool):
+        # 패널별 번갈아보기 — 좌측만 다시 그림(재조회 없음).
+        if 0 <= panel_idx < len(self._panels):
+            self._panels[panel_idx].interleave = checked
+            self._render_left()
 
     def _on_translation_toggled(self, code: str, checked: bool):
         # 최소 한 개는 켜둔다
@@ -2456,18 +2526,13 @@ class MainWindow(QMainWindow):
         self._search_dialog.input_edit.setFocus()
 
     def _on_search_jump(self, book_en: str, chapter: int, verse: int):
-        # 결과 클릭 → 셀렉터에 값 채우고 즉시 조회
+        # 검색 결과 더블클릭 → 화면을 비우지 않고 '맨 왼쪽 패널'에 그 절을 추가.
+        # 검색 다이얼로그는 모드리스라 그대로 열려 있어 계속 추가할 수 있다.
         from bible_books import BOOKS
         ko = next((k for en, k, _, _, _ in BOOKS if en == book_en), None)
         if ko is None:
             return
-        self.book_box.setCurrentText(ko)
-        self._on_book_changed(self.book_box.currentIndex())
-        self.whole_check.setChecked(False)
-        self.chap_box.setValue(chapter)
-        self.verse_start.setValue(verse)
-        self.verse_end.setValue(verse)
-        self._on_lookup()
+        self._add_refs_to_first_panel([Reference(book_en, ko, chapter, verse, verse)])
 
     # ---- 사전 ----
 
@@ -2611,4 +2676,5 @@ def run():
 
     win = MainWindow(storage, fetcher, settings)
     win.show()
+    _OPEN_WINDOWS.append(win)
     sys.exit(app.exec())

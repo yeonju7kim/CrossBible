@@ -167,9 +167,10 @@ class BibleGatewayFetcher:
             for n in matched:
                 verses[n] = (verses.get(n, "") + " " + text).strip()
 
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"Bible Gateway 누락 절 {missing} ({ref.header_en} {version})")
+        # 범위 안에 실제로 없는 절(예: 디모데후서 1장은 18절까지)은 그냥 건너뛴다.
+        # 본문을 하나도 못 찾았을 때만 실패로 처리.
+        if not verses:
+            raise RuntimeError(f"Bible Gateway: 본문을 찾지 못함 ({ref.header_en} {version})")
         return sorted(verses.items())
 
     @staticmethod
@@ -262,9 +263,8 @@ class BsKoreaFetcher:
             if text:
                 verses[n] = text
 
-        missing = [n for n in ref.verse_numbers() if n not in verses]
-        if missing:
-            raise RuntimeError(f"대한성서공회 누락 절 {missing} ({ref.header_ko})")
+        if not verses:
+            raise RuntimeError(f"대한성서공회: 본문을 찾지 못함 ({ref.header_ko})")
         return sorted(verses.items())
 
     @staticmethod
@@ -367,9 +367,8 @@ class NocrFetcher:
         all_verses = dict(self.fetch_chapter(ref.book_en, ref.chapter))
         result = [(n, t) for n, t in sorted(all_verses.items())
                   if ref.verse_start <= n <= ref.verse_end]
-        missing = [n for n in ref.verse_numbers() if n not in {n for n, _ in result}]
-        if missing:
-            raise RuntimeError(f"우리말성경 누락 절 {missing} ({ref.header_ko})")
+        if not result:
+            raise RuntimeError(f"우리말성경: 본문을 찾지 못함 ({ref.header_ko})")
         return result
 
     def fetch_chapter(self, book_en: str, chapter: int) -> list[tuple[int, str]]:
