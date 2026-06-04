@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import time
 from urllib.parse import urlencode
 
@@ -481,12 +482,16 @@ class CrossBibleFetcher:
         self.interlinear = BibleHubInterlinearFetcher()
         self.commentary = BibleHubCommentaryFetcher()
         self._last_call = 0.0
+        # 조회 스레드와 다운로드 스레드가 같은 fetcher 를 공유할 수 있으므로
+        # throttle 상태(_last_call)를 lock 으로 보호한다.
+        self._throttle_lock = threading.Lock()
 
     def _throttle(self):
-        elapsed = time.time() - self._last_call
-        if elapsed < self.POLITE_DELAY_SEC:
-            time.sleep(self.POLITE_DELAY_SEC - elapsed)
-        self._last_call = time.time()
+        with self._throttle_lock:
+            elapsed = time.time() - self._last_call
+            if elapsed < self.POLITE_DELAY_SEC:
+                time.sleep(self.POLITE_DELAY_SEC - elapsed)
+            self._last_call = time.time()
 
     # ---- 챕터 단위 다운로드 (오프라인 사전 캐시용) ----
 
@@ -537,7 +542,9 @@ class CrossBibleFetcher:
                 for chap in range(1, max_chap + 1):
                     if cancel_cb and cancel_cb():
                         return done, total, failures
-                    if self.storage.chapter_cached(translation, book_en, chap):
+                    # 장 '전체'를 받은 적이 있을 때만 skip. 단일 절 조회로 verses 에
+                    # 한두 절만 들어있는 부분 캐시는 다시 받아 장을 채운다.
+                    if self.storage.chapter_downloaded(translation, book_en, chap):
                         done += 1
                         if progress_cb:
                             progress_cb(done, total, f"{label} · {book_ko} {chap}장 (캐시됨)")
@@ -549,6 +556,7 @@ class CrossBibleFetcher:
                         verses = self.fetch_chapter(translation, book_en, chap)
                         if verses:
                             self.storage.put_verses(translation, book_en, chap, verses)
+                            self.storage.mark_chapter_downloaded(translation, book_en, chap)
                         else:
                             failures.append((translation, book_en, chap, "절 없음"))
                     except Exception as e:
@@ -561,14 +569,15 @@ class CrossBibleFetcher:
 
     def _throttle_interruptible(self, cancel_cb=None) -> bool:
         """0.1초 단위로 sleep 하면서 cancel_cb 를 체크. 취소되면 False 반환."""
-        target = self._last_call + self.POLITE_DELAY_SEC
-        while time.time() < target:
-            if cancel_cb and cancel_cb():
-                self._last_call = time.time()
-                return False
-            time.sleep(min(0.1, max(0.0, target - time.time())))
-        self._last_call = time.time()
-        return True
+        with self._throttle_lock:
+            target = self._last_call + self.POLITE_DELAY_SEC
+            while time.time() < target:
+                if cancel_cb and cancel_cb():
+                    self._last_call = time.time()
+                    return False
+                time.sleep(min(0.1, max(0.0, target - time.time())))
+            self._last_call = time.time()
+            return True
 
     # ---- 본문 ----
 

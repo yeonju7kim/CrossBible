@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QSettings, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QSettings, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import (
     QAction,
@@ -1332,7 +1332,12 @@ class VerseBlock(QWidget):
         self.note.setPlainText(
             self.storage.get_note(self.ref.book_en, self.ref.chapter, self.verse)
         )
-        self.note.textChanged.connect(self._save_note)
+        # 키 입력마다 DB commit 하지 않고, 입력이 멈춘 뒤 한 번만 저장 (디바운스).
+        self._note_timer = QTimer(self)
+        self._note_timer.setSingleShot(True)
+        self._note_timer.setInterval(500)
+        self._note_timer.timeout.connect(self._save_note)
+        self.note.textChanged.connect(self._note_timer.start)
         self._body_layout.addWidget(self.note)
 
         self._body_built = True
@@ -1367,6 +1372,12 @@ class VerseBlock(QWidget):
     def _save_note(self):
         self.storage.put_note(self.ref.book_en, self.ref.chapter, self.verse,
                               self.note.toPlainText())
+
+    def flush_note(self):
+        """디바운스 대기 중인 메모를 즉시 저장. 블록 제거/앱 종료 직전에 호출."""
+        if self._body_built and self._note_timer.isActive():
+            self._note_timer.stop()
+            self._save_note()
 
     def _set_interlinear(self, words: list):
         self.interlinear.set_words(words)
@@ -1570,6 +1581,12 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        # 디바운스 대기 중인 메모를 마지막으로 저장
+        for block in self.verse_blocks.values():
+            try:
+                block.flush_note()
+            except Exception:
+                pass
         # 종료 직전에 한 번 더 flush — 일부 OS/빌드 환경에서 안전망
         try:
             self.settings.sync()
@@ -2061,9 +2078,10 @@ class MainWindow(QMainWindow):
             if verses:
                 self._append_side_passage(ref, verses, old)
 
-        # 더 이상 화면에 없는 옛 블록은 정리
+        # 더 이상 화면에 없는 옛 블록은 정리 (디바운스 대기 중인 메모는 먼저 저장)
         for key, blk in old.items():
             if key not in self.verse_blocks:
+                blk.flush_note()
                 blk.setParent(None)
                 blk.deleteLater()
 
