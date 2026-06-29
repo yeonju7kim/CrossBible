@@ -161,7 +161,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "split.too_small": "한 절짜리는 나눌 수 없어요.",
         "menu.library": "라이브러리",
         "menu.bookmarks": "북마크",
-        "bookmark.add_current": "현재 선택 구절 북마크 추가",
         "bookmark.open": "북마크 보기…",
         "bookmark.added": "북마크에 추가됨: {ref}",
         "bookmark.dialog_title": "북마크",
@@ -193,6 +192,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.font_label": "글자:",
         "filter.font_minus": "본문 글자 작게 (Ctrl+-)",
         "filter.font_plus": "본문 글자 크게 (Ctrl+=)",
+        "filter.font_size_tooltip": "본문 글자 크기를 직접 입력 (pt). Ctrl+0 으로 기본값.",
         "filter.reorder": "역본 순서",
         "filter.reorder_tooltip": "역본이 표시되는 순서를 바꿉니다.",
         "reorder.title": "역본 순서 조정",
@@ -407,7 +407,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "split.too_small": "A single verse can't be split.",
         "menu.library": "Library",
         "menu.bookmarks": "Bookmarks",
-        "bookmark.add_current": "Bookmark current selection",
         "bookmark.open": "Open bookmarks…",
         "bookmark.added": "Bookmarked: {ref}",
         "bookmark.dialog_title": "Bookmarks",
@@ -439,6 +438,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.font_label": "Font:",
         "filter.font_minus": "Smaller verse text (Ctrl+-)",
         "filter.font_plus": "Larger verse text (Ctrl+=)",
+        "filter.font_size_tooltip": "Type the verse text size directly (pt). Ctrl+0 to reset.",
         "filter.reorder": "Order",
         "filter.reorder_tooltip": "Change the order translations are shown in.",
         "reorder.title": "Translation order",
@@ -1868,10 +1868,11 @@ class MainWindow(QMainWindow):
         self._bookmark_dialog: "BookmarksDialog | None" = None
         self._undo_stack: list[list[Panel]] = []   # 조회/변경 직전 상태 (되돌리기)
         self._selected_panel: int = 0   # #4 선택된 패널 (역본 필터가 적용될 대상)
-        try:
-            self._font_scale = int(self.settings.value("font_scale", 0) or 0)
-        except (TypeError, ValueError):
-            self._font_scale = 0
+        # 본문 글자 크기 — 절대 pt 값 (직접 입력 가능). 기본값은 앱 기본 폰트 크기.
+        base = QApplication.instance().font().pointSize()
+        self._base_font_pt = base if base and base > 0 else 10
+        self._font_spin = None
+        self._font_pt = self._load_font_pt()
         self._translation_order = self._load_translation_order()
 
         self.setWindowTitle(tr("app.title"))
@@ -1984,9 +1985,6 @@ class MainWindow(QMainWindow):
         self._library_dialog: LibraryDialog | None = None
 
         bookmark_menu = bar.addMenu(tr("menu.bookmarks"))
-        bm_add_action = QAction(tr("bookmark.add_current"), self)
-        bm_add_action.triggered.connect(self._on_bookmark_current)
-        bookmark_menu.addAction(bm_add_action)
         bm_open_action = QAction(tr("bookmark.open"), self)
         bm_open_action.triggered.connect(self._on_open_bookmarks)
         bookmark_menu.addAction(bm_open_action)
@@ -2176,13 +2174,21 @@ class MainWindow(QMainWindow):
 
         row.addStretch(1)
 
-        # 본문 글자 크기 조절
+        # 본문 글자 크기 조절 (A−/A+ 또는 직접 입력)
         row.addWidget(QLabel(tr("filter.font_label")))
         minus = QPushButton("A−")
         minus.setFixedWidth(34)
         minus.setToolTip(tr("filter.font_minus"))
         minus.clicked.connect(lambda: self._change_font(-1))
         row.addWidget(minus)
+        spin = QSpinBox()
+        spin.setRange(self.FONT_PT_MIN, self.FONT_PT_MAX)
+        spin.setValue(self._font_pt)
+        spin.setSuffix(" pt")
+        spin.setToolTip(tr("filter.font_size_tooltip"))
+        spin.valueChanged.connect(self._set_font_pt)
+        self._font_spin = spin
+        row.addWidget(spin)
         plus = QPushButton("A+")
         plus.setFixedWidth(34)
         plus.setToolTip(tr("filter.font_plus"))
@@ -2391,15 +2397,30 @@ class MainWindow(QMainWindow):
         finally:
             self._translations_container.setUpdatesEnabled(True)
 
+    def _rerender_panel(self, idx: int):
+        """패널 한 개만 제자리에서 다시 그린다 (전체 _render_left 회피 → 빠름)."""
+        if not (0 <= idx < len(self._panels)) or idx >= len(self._panel_widgets):
+            return
+        old = self._panel_widgets[idx]
+        panel = self._panels[idx]
+        new = self._render_panel(idx, panel, self._panel_enabled(panel))
+        self._left_layout.replaceWidget(old, new)
+        self._left_layout.setStretchFactor(new, 1)
+        old.setParent(None)
+        old.deleteLater()
+        self._panel_widgets[idx] = new
+
+    def _rerender_panels_with_ref(self, ref: Reference):
+        """주어진 구절을 담은 패널들만 다시 그린다 (본문 도착/오류 시)."""
+        for i, p in enumerate(self._panels):
+            if ref in p.blocks:
+                self._rerender_panel(i)
+
     def _render_panel(self, panel_idx: int, panel: Panel,
                       enabled: list[str]) -> QWidget:
         col = _ClickableFrame()
         col.setObjectName("panelFrame")
         col.clicked.connect(lambda p=panel_idx: self._select_panel(p))
-        selected = (panel_idx == self._selected_panel)
-        # 선택된 패널만 강조 테두리 (#4). objectName 한정으로 자식 위젯엔 영향 없음.
-        border = "2px solid #4a90d9" if selected else "1px solid rgba(128,128,128,0.35)"
-        col.setStyleSheet(f"#panelFrame {{ border: {border}; border-radius: 4px; }}")
         col.setMinimumWidth(self.PANEL_MIN_WIDTH)  # 4개 초과 시 가로 스크롤 유발
         cv = QVBoxLayout(col)
         cv.setContentsMargins(4, 6, 4, 4)
@@ -2408,11 +2429,12 @@ class MainWindow(QMainWindow):
         # 패널 상단 바: 패널번호(선택표시) + (번갈아보기 토글) + 패널 삭제 🗑
         top = QHBoxLayout()
         top.setSpacing(4)
-        num = QLabel(tr("panel.label", n=panel_idx + 1) + (" ●" if selected else ""))
-        num.setStyleSheet(
-            "color:#4a90d9; font-weight:bold;" if selected else "color:#888;"
-        )
+        num = QLabel()
         top.addWidget(num)
+        # 선택 강조(테두리/번호)는 재렌더 없이 스타일만 바꾸도록 위젯을 보관해 둔다.
+        col._num_label = num
+        col._panel_idx = panel_idx
+        self._apply_panel_style(col, panel_idx == self._selected_panel)
         if panel.blocks:
             il = QCheckBox(tr("filter.interleave"))
             il.setChecked(panel.interleave)
@@ -2529,10 +2551,9 @@ class MainWindow(QMainWindow):
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        if self._font_scale:
-            bf = body.font()
-            bf.setPointSize(max(6, bf.pointSize() + self._font_scale))
-            body.setFont(bf)
+        bf = body.font()
+        bf.setPointSize(self._font_pt)
+        body.setFont(bf)
 
         if (ref, t) in self._verse_errors:
             body.setText(
@@ -2563,10 +2584,9 @@ class MainWindow(QMainWindow):
             line.setWordWrap(True)
             line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             line.setContentsMargins(14, 0, 0, 0)
-            if self._font_scale:
-                lf = line.font()
-                lf.setPointSize(max(6, lf.pointSize() + self._font_scale))
-                line.setFont(lf)
+            lf = line.font()
+            lf.setPointSize(self._font_pt)
+            line.setFont(lf)
             v.addWidget(line)
         return box
 
@@ -2985,11 +3005,6 @@ class MainWindow(QMainWindow):
             self._bookmark_dialog.refresh()
         self.statusBar().showMessage(tr("bookmark.added", ref=_ref_header(ref)), 3000)
 
-    def _on_bookmark_current(self):
-        ref = self._current_ref()
-        if ref is not None:
-            self._bookmark_ref(ref)
-
     def _on_open_bookmarks(self):
         if self._bookmark_dialog is None:
             self._bookmark_dialog = BookmarksDialog(self.storage, self)
@@ -3003,15 +3018,41 @@ class MainWindow(QMainWindow):
 
     # ---- 텍스트 크기 ----
 
-    def _change_font(self, delta: int):
-        self._font_scale = max(-4, min(16, self._font_scale + delta))
-        self.settings.setValue("font_scale", self._font_scale)
+    FONT_PT_MIN = 6
+    FONT_PT_MAX = 40
+
+    def _load_font_pt(self) -> int:
+        """저장된 본문 글자 크기(pt). 구버전(font_scale 델타) 설정은 절대값으로 변환."""
+        raw = self.settings.value("font_pt", None)
+        if raw is not None:
+            try:
+                return max(self.FONT_PT_MIN, min(self.FONT_PT_MAX, int(raw)))
+            except (TypeError, ValueError):
+                pass
+        # 마이그레이션: 예전 font_scale(델타) → 절대 pt
+        try:
+            scale = int(self.settings.value("font_scale", 0) or 0)
+        except (TypeError, ValueError):
+            scale = 0
+        return max(self.FONT_PT_MIN, min(self.FONT_PT_MAX, self._base_font_pt + scale))
+
+    def _set_font_pt(self, pt: int):
+        pt = max(self.FONT_PT_MIN, min(self.FONT_PT_MAX, int(pt)))
+        if pt == self._font_pt:
+            return
+        self._font_pt = pt
+        self.settings.setValue("font_pt", pt)
+        if self._font_spin is not None:
+            self._font_spin.blockSignals(True)
+            self._font_spin.setValue(pt)
+            self._font_spin.blockSignals(False)
         self._render_left()
 
+    def _change_font(self, delta: int):
+        self._set_font_pt(self._font_pt + delta)
+
     def _reset_font(self):
-        self._font_scale = 0
-        self.settings.setValue("font_scale", 0)
-        self._render_left()
+        self._set_font_pt(self._base_font_pt)
 
     def _on_verses_ready(self, ref: Reference, translation: str, verses: list):
         self._verse_data[(ref, translation)] = verses
@@ -3022,11 +3063,11 @@ class MainWindow(QMainWindow):
             if nums:
                 self._passage_verses[ref] = nums
                 self._rebuild_side()
-        self._render_left()
+        self._rerender_panels_with_ref(ref)   # 해당 구절 패널만 갱신 (전체 재렌더 회피)
 
     def _on_verses_error(self, ref: Reference, translation: str, message: str):
         self._verse_errors[(ref, translation)] = message
-        self._render_left()
+        self._rerender_panels_with_ref(ref)
 
     def _on_finished(self):
         self.statusBar().showMessage(tr("status.done"), 3000)
@@ -3042,10 +3083,10 @@ class MainWindow(QMainWindow):
         )
 
     def _set_panel_interleave(self, panel_idx: int, checked: bool):
-        # 패널별 번갈아보기 — 좌측만 다시 그림(재조회 없음).
+        # 패널별 번갈아보기 — 그 패널만 다시 그림(재조회 없음).
         if 0 <= panel_idx < len(self._panels):
             self._panels[panel_idx].interleave = checked
-            self._render_left()
+            self._rerender_panel(panel_idx)
 
     def _load_translation_order(self) -> list[str]:
         """저장된 역본 표시 순서. 없거나 망가졌으면 기본 순서."""
@@ -3116,7 +3157,7 @@ class MainWindow(QMainWindow):
             return
         panel.trans_order = order
         panel.trans_enabled = [c for c in order if c in enabled]
-        self._refetch_and_render()
+        self._refetch_and_render(self._selected_panel)
 
     def _on_reorder_translations(self):
         # 순서 조정도 '선택된 패널' 기준 (#4). 패널이 없으면 전체 기본 순서를 바꾼다.
@@ -3137,12 +3178,23 @@ class MainWindow(QMainWindow):
             self._translation_order = new_order
             self._save_translation_order()
         self._sync_filter_row()
-        self._refetch_and_render()
+        if panel is not None:
+            self._refetch_and_render(self._selected_panel)
+        else:
+            self._render_left()
 
-    def _refetch_and_render(self):
-        """패널별 역본이 바뀌었을 때 새 역본만 조회하고 다시 그린다."""
+    def _refetch_and_render(self, idx: int | None = None):
+        """패널 역본이 바뀌었을 때 새 역본만 조회하고, 해당 패널만 다시 그린다.
+
+        idx 가 주어지면 그 패널만, 없으면 전체. 우측(원어/주석)은 역본과 무관하므로
+        다시 그리지 않는다 → 역본 켜기/끄기·순서 변경이 가볍다.
+        """
+        panels = (
+            [(idx, self._panels[idx])] if idx is not None and 0 <= idx < len(self._panels)
+            else list(enumerate(self._panels))
+        )
         targets: list[tuple[Reference, str]] = []
-        for p in self._panels:
+        for _i, p in panels:
             for ref in p.blocks:
                 for t in self._panel_enabled(p):
                     if (ref, t) in self._verse_data:
@@ -3154,16 +3206,35 @@ class MainWindow(QMainWindow):
                             self._passage_verses[ref] = [n for n, _ in cached]
                         continue
                     targets.append((ref, t))
-        self._rebuild_side()
-        self._render_left()
+        if idx is not None:
+            self._rerender_panel(idx)
+        else:
+            self._render_left()
         self._fetch(targets, False)
 
+    def _apply_panel_style(self, frame, selected: bool):
+        """패널 프레임의 선택 강조만 갱신 (전체 재렌더 없이 빠르게)."""
+        border = "2px solid #4a90d9" if selected else "1px solid rgba(128,128,128,0.35)"
+        # objectName 한정 셀렉터라 자식 위젯엔 영향 없음.
+        frame.setStyleSheet(f"#panelFrame {{ border: {border}; border-radius: 4px; }}")
+        num = getattr(frame, "_num_label", None)
+        idx = getattr(frame, "_panel_idx", 0)
+        if num is not None:
+            num.setText(tr("panel.label", n=idx + 1) + (" ●" if selected else ""))
+            num.setStyleSheet(
+                "color:#4a90d9; font-weight:bold;" if selected else "color:#888;"
+            )
+
     def _select_panel(self, idx: int):
-        if idx == self._selected_panel:
+        if idx == self._selected_panel or not (0 <= idx < len(self._panels)):
             return
+        prev = self._selected_panel
         self._selected_panel = idx
+        # 무거운 _render_left() 대신 두 패널의 테두리/번호 스타일만 바꾼다.
+        for i in (prev, idx):
+            if 0 <= i < len(self._panel_widgets):
+                self._apply_panel_style(self._panel_widgets[i], i == idx)
         self._sync_filter_row()
-        self._render_left()   # 선택 테두리 갱신
 
     def _sync_filter_row(self):
         """필터 줄(체크박스+순서)을 현재 선택된 패널 상태로 다시 만든다."""
