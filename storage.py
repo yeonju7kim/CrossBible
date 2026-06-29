@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS chapter_downloads (
     chapter INTEGER NOT NULL,
     PRIMARY KEY (translation, book_en, chapter)
 );
+CREATE TABLE IF NOT EXISTS bookmarks (
+    key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -320,4 +325,28 @@ class Storage:
     def delete_collection(self, name: str) -> None:
         with self._lock:
             self.conn.execute("DELETE FROM library WHERE name=?", (name,))
+            self.conn.commit()
+
+    # ---- 북마크 (개별 구절) ----
+
+    def add_bookmark(self, key: str, payload: str) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO bookmarks(key, payload, created_at) VALUES (?,?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET payload=excluded.payload",
+                (key, payload),
+            )
+            self.conn.commit()
+
+    def list_bookmarks(self) -> list[tuple[str, str]]:
+        """(key, payload) 목록 — 최근 추가 순."""
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT key, payload FROM bookmarks ORDER BY created_at DESC, key"
+            ).fetchall()
+        return [(str(k), str(p)) for k, p in rows]
+
+    def remove_bookmark(self, key: str) -> None:
+        with self._lock:
+            self.conn.execute("DELETE FROM bookmarks WHERE key=?", (key,))
             self.conn.commit()
