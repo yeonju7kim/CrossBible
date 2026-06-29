@@ -138,6 +138,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.to_panel_label": "옮길 패널 번호 (1–{n}):",
         "block.move_up": "위로 (패널 안 순서)",
         "block.move_down": "아래로 (패널 안 순서)",
+        "block.copy": "이 구절 본문 복사",
+        "block.bookmark": "북마크 추가",
         "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
         "panel.remove_tooltip": "이 패널 삭제 (구절 포함)",
         "passage.max_title": "패널 한도",
@@ -148,6 +150,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "split.need_text": "본문을 받은 뒤에 나눌 수 있어요. 잠시 후 다시 시도해 주세요.",
         "split.too_small": "한 절짜리는 나눌 수 없어요.",
         "menu.library": "라이브러리",
+        "menu.bookmarks": "북마크",
+        "bookmark.add_current": "현재 선택 구절 북마크 추가",
+        "bookmark.open": "북마크 보기…",
+        "bookmark.added": "북마크에 추가됨: {ref}",
+        "bookmark.dialog_title": "북마크",
+        "bookmark.intro": "저장한 구절입니다. 더블클릭하면 맨 왼쪽 패널에 추가됩니다.",
+        "bookmark.empty": "북마크가 없습니다. 구절의 ★ 버튼이나 북마크 → 현재 선택 구절 북마크 추가 를 사용하세요.",
+        "bookmark.load": "맨 왼쪽 패널에 추가",
+        "bookmark.delete": "삭제",
         "library.save": "현재 구절 저장…",
         "library.open": "불러오기 / 관리…",
         "library.save_title": "라이브러리에 저장",
@@ -169,6 +180,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.show_translations": "표시할 번역:",
         "filter.interleave": "번갈아보기",
         "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
+        "filter.font_label": "글자:",
+        "filter.font_minus": "본문 글자 작게 (Ctrl+-)",
+        "filter.font_plus": "본문 글자 크게 (Ctrl+=)",
         "verse.interlinear_section": "원어 (BibleHub Interlinear)",
         "verse.commentary_section": "주석 (BibleHub Commentaries)",
         "verse.note_section": "메모",
@@ -353,6 +367,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.to_panel_label": "Target panel number (1–{n}):",
         "block.move_up": "Move up (within panel)",
         "block.move_down": "Move down (within panel)",
+        "block.copy": "Copy this passage's text",
+        "block.bookmark": "Add bookmark",
         "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
         "panel.remove_tooltip": "Delete this panel (with its passages)",
         "passage.max_title": "Panel limit",
@@ -363,6 +379,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "split.need_text": "You can split once the text has loaded. Try again shortly.",
         "split.too_small": "A single verse can't be split.",
         "menu.library": "Library",
+        "menu.bookmarks": "Bookmarks",
+        "bookmark.add_current": "Bookmark current selection",
+        "bookmark.open": "Open bookmarks…",
+        "bookmark.added": "Bookmarked: {ref}",
+        "bookmark.dialog_title": "Bookmarks",
+        "bookmark.intro": "Your saved passages. Double-click to add to the leftmost panel.",
+        "bookmark.empty": "No bookmarks yet. Use a passage's ★ button or Bookmarks → Bookmark current selection.",
+        "bookmark.load": "Add to leftmost panel",
+        "bookmark.delete": "Delete",
         "library.save": "Save current passages…",
         "library.open": "Open / manage…",
         "library.save_title": "Save to library",
@@ -384,6 +409,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "filter.show_translations": "Show translations:",
         "filter.interleave": "Interleave",
         "filter.interleave_tooltip": "Group translations per verse.",
+        "filter.font_label": "Font:",
+        "filter.font_minus": "Smaller verse text (Ctrl+-)",
+        "filter.font_plus": "Larger verse text (Ctrl+=)",
         "verse.interlinear_section": "Original (BibleHub Interlinear)",
         "verse.commentary_section": "Commentary (BibleHub Commentaries)",
         "verse.note_section": "Notes",
@@ -1183,6 +1211,76 @@ class LibraryDialog(QDialog):
         self.refresh()
 
 
+class BookmarksDialog(QDialog):
+    """저장한 북마크(개별 구절) 목록. 더블클릭 → 맨 왼쪽 패널에 추가."""
+
+    add_to_view = pyqtSignal(object)  # Reference
+
+    def __init__(self, storage: Storage, parent=None):
+        super().__init__(parent)
+        self.storage = storage
+        self.setWindowTitle(tr("bookmark.dialog_title"))
+        self.resize(420, 460)
+
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+        intro = QLabel(tr("bookmark.intro"))
+        intro.setStyleSheet("color:#888;")
+        intro.setWordWrap(True)
+        v.addWidget(intro)
+
+        self.listw = QListWidget()
+        self.listw.itemDoubleClicked.connect(self._load)
+        v.addWidget(self.listw, 1)
+
+        self.empty_label = QLabel(tr("bookmark.empty"))
+        self.empty_label.setStyleSheet("color:#888;")
+        self.empty_label.setWordWrap(True)
+        v.addWidget(self.empty_label)
+
+        btn_row = QHBoxLayout()
+        load_btn = QPushButton(tr("bookmark.load"))
+        load_btn.clicked.connect(lambda: self._load(self.listw.currentItem()))
+        del_btn = QPushButton(tr("bookmark.delete"))
+        del_btn.clicked.connect(self._delete)
+        close_btn = QPushButton(tr("library.close"))
+        close_btn.clicked.connect(self.reject)
+        btn_row.addWidget(load_btn)
+        btn_row.addWidget(del_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(close_btn)
+        v.addLayout(btn_row)
+        self.refresh()
+
+    def refresh(self):
+        self.listw.clear()
+        rows = self.storage.list_bookmarks()
+        for key, payload in rows:
+            it = QListWidgetItem(key)
+            it.setData(Qt.ItemDataRole.UserRole, payload)
+            self.listw.addItem(it)
+        has = len(rows) > 0
+        self.empty_label.setVisible(not has)
+        self.listw.setVisible(has)
+
+    def _load(self, item):
+        if item is None:
+            return
+        try:
+            ref = _ref_from_dict(json.loads(item.data(Qt.ItemDataRole.UserRole)))
+        except Exception:
+            return
+        self.add_to_view.emit(ref)
+
+    def _delete(self):
+        item = self.listw.currentItem()
+        if item is None:
+            return
+        self.storage.remove_bookmark(item.text())
+        self.refresh()
+
+
 class VersesWorker(QObject):
     """필요한 (구절, 번역본) 쌍의 '본문'만 가져온다. 원어/주석은 지연 로딩.
 
@@ -1620,6 +1718,11 @@ class MainWindow(QMainWindow):
         self._passage_verses: dict[Reference, list[int]] = {}
         self._panel_widgets: list[QWidget] = []   # 패널 점프용
         self._passage_popup: "PassagePopup | None" = None  # Enter 미리보기 팝업
+        self._bookmark_dialog: "BookmarksDialog | None" = None
+        try:
+            self._font_scale = int(self.settings.value("font_scale", 0) or 0)
+        except (TypeError, ValueError):
+            self._font_scale = 0
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1648,6 +1751,10 @@ class MainWindow(QMainWindow):
 
         QShortcut(QKeySequence("Ctrl+Return"), self, activated=self._on_lookup)
         QShortcut(QKeySequence("F9"), self, activated=self.side_toggle_btn.toggle)
+        QShortcut(QKeySequence("Ctrl+="), self, activated=lambda: self._change_font(+1))
+        QShortcut(QKeySequence("Ctrl++"), self, activated=lambda: self._change_font(+1))
+        QShortcut(QKeySequence("Ctrl+-"), self, activated=lambda: self._change_font(-1))
+        QShortcut(QKeySequence("Ctrl+0"), self, activated=self._reset_font)
 
         self._on_book_changed(0)
 
@@ -1724,6 +1831,14 @@ class MainWindow(QMainWindow):
         lib_open_action.triggered.connect(self._on_library_open)
         library_menu.addAction(lib_open_action)
         self._library_dialog: LibraryDialog | None = None
+
+        bookmark_menu = bar.addMenu(tr("menu.bookmarks"))
+        bm_add_action = QAction(tr("bookmark.add_current"), self)
+        bm_add_action.triggered.connect(self._on_bookmark_current)
+        bookmark_menu.addAction(bm_add_action)
+        bm_open_action = QAction(tr("bookmark.open"), self)
+        bm_open_action.triggered.connect(self._on_open_bookmarks)
+        bookmark_menu.addAction(bm_open_action)
 
         help_menu = bar.addMenu(tr("menu.help"))
         feedback_action = QAction(tr("menu.feedback"), self)
@@ -1883,6 +1998,19 @@ class MainWindow(QMainWindow):
             self.translation_checks[code] = cb
             row.addWidget(cb)
         row.addStretch(1)
+
+        # 본문 글자 크기 조절
+        row.addWidget(QLabel(tr("filter.font_label")))
+        minus = QPushButton("A−")
+        minus.setFixedWidth(34)
+        minus.setToolTip(tr("filter.font_minus"))
+        minus.clicked.connect(lambda: self._change_font(-1))
+        row.addWidget(minus)
+        plus = QPushButton("A+")
+        plus.setFixedWidth(34)
+        plus.setToolTip(tr("filter.font_plus"))
+        plus.clicked.connect(lambda: self._change_font(+1))
+        row.addWidget(plus)
         return row
 
     def _build_translations_column(self) -> QWidget:
@@ -2148,6 +2276,10 @@ class MainWindow(QMainWindow):
              lambda _c=False, p=panel_idx, b=block_idx: self._move_block(p, b, +1), block_idx < n_blocks - 1),
             ("✂", tr("passage.split_tooltip"),
              lambda _c=False, p=panel_idx, b=block_idx: self._split_block(p, b), True),
+            ("📋", tr("block.copy"),
+             lambda _c=False, r=ref: self._copy_block(r), True),
+            ("★", tr("block.bookmark"),
+             lambda _c=False, r=ref: self._bookmark_ref(r), True),
             ("✕", tr("passage.remove_tooltip"),
              lambda _c=False, p=panel_idx, b=block_idx: self._remove_block(p, b), True),
         ]
@@ -2199,7 +2331,10 @@ class MainWindow(QMainWindow):
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        # 모든 번역본 동일 크기 (기본 = 우리말성경 크기)
+        if self._font_scale:
+            bf = body.font()
+            bf.setPointSize(max(6, bf.pointSize() + self._font_scale))
+            body.setFont(bf)
 
         if (ref, t) in self._verse_errors:
             body.setText(
@@ -2230,6 +2365,10 @@ class MainWindow(QMainWindow):
             line.setWordWrap(True)
             line.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             line.setContentsMargins(14, 0, 0, 0)
+            if self._font_scale:
+                lf = line.font()
+                lf.setPointSize(max(6, lf.pointSize() + self._font_scale))
+                line.setFont(lf)
             v.addWidget(line)
         return box
 
@@ -2594,6 +2733,57 @@ class MainWindow(QMainWindow):
         idx, ok = QInputDialog.getInt(self, tr("jump.title"), tr("jump.label", n=n), 1, 1, n)
         if ok and 1 <= idx <= len(self._panel_widgets):
             self._left_scroll.ensureWidgetVisible(self._panel_widgets[idx - 1], 50, 0)
+
+    # ---- 본문 복사 ----
+
+    def _copy_block(self, ref: Reference):
+        enabled = self._enabled_translations()
+        lines = [_ref_header(ref)]
+        for t in enabled:
+            data = self._verse_data.get((ref, t))
+            if not data:
+                continue
+            label = CrossBibleFetcher.TRANSLATION_LABELS.get(t, t)
+            body = "  ".join(f"{n} {txt}" for n, txt in data)
+            lines.append(f"{label}  {body}")
+        QApplication.clipboard().setText("\n".join(lines))
+        QMessageBox.information(self, tr("multi.copied_title"), tr("multi.copied"))
+
+    # ---- 북마크 ----
+
+    def _bookmark_ref(self, ref: Reference):
+        self.storage.add_bookmark(ref.header_en, json.dumps(_ref_to_dict(ref), ensure_ascii=False))
+        if self._bookmark_dialog is not None:
+            self._bookmark_dialog.refresh()
+        self.statusBar().showMessage(tr("bookmark.added", ref=_ref_header(ref)), 3000)
+
+    def _on_bookmark_current(self):
+        ref = self._current_ref()
+        if ref is not None:
+            self._bookmark_ref(ref)
+
+    def _on_open_bookmarks(self):
+        if self._bookmark_dialog is None:
+            self._bookmark_dialog = BookmarksDialog(self.storage, self)
+            self._bookmark_dialog.add_to_view.connect(
+                lambda ref: self._add_refs_to_first_panel([ref])
+            )
+        self._bookmark_dialog.refresh()
+        self._bookmark_dialog.show()
+        self._bookmark_dialog.raise_()
+        self._bookmark_dialog.activateWindow()
+
+    # ---- 텍스트 크기 ----
+
+    def _change_font(self, delta: int):
+        self._font_scale = max(-4, min(16, self._font_scale + delta))
+        self.settings.setValue("font_scale", self._font_scale)
+        self._render_left()
+
+    def _reset_font(self):
+        self._font_scale = 0
+        self.settings.setValue("font_scale", 0)
+        self._render_left()
 
     def _on_verses_ready(self, ref: Reference, translation: str, verses: list):
         self._verse_data[(ref, translation)] = verses
