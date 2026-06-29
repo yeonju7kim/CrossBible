@@ -3,6 +3,7 @@
 예) "Acts 12:12, 12:25, 13:5, 13:13, 15:37-40, Col 4:10, Philem 1:24"
     "사도행전 12:12, 12:25, 골 4:10"
     "John 3"            (장 전체)
+    "Acts 13-15"        (장 범위 → 13,14,15장 전체)
     "요한복음 3:14-21"
 
 규칙
@@ -11,7 +12,8 @@
     BOOK C:V            한 절
     BOOK C:V-V2         한 장 안의 절 범위
     BOOK C              장 전체
-    C:V / C:V-V2 / C    앞 토큰의 책을 그대로 이어 씀 (book carry-over)
+    BOOK C1-C2          장 범위 (C1~C2 장 전체)
+    C:V / C:V-V2 / C / C1-C2   앞 토큰의 책을 그대로 이어 씀 (book carry-over)
 - 책 이름은 영문 정식/약어, 한글 정식/약어, 그리고 접두사(prefix) 매칭까지 허용.
   ("Col"→Colossians, "Philem"→Philemon, "행"→Acts)
 - 대시는 - – — 모두 허용.
@@ -32,6 +34,8 @@ _RANGE_RE = re.compile(
     r"^(?P<book>.*?)\s*(?P<chap>\d+)\s*[.:]\s*(?P<v1>\d+)"
     r"(?:\s*-\s*(?:(?P<chap2>\d+)\s*[.:]\s*)?(?P<v2>\d+))?$"
 )
+# 장 범위: "BOOK C1-C2" (콜론/점 없이 대시만). 예 "Acts 13-15" → 13,14,15장 전체.
+_CHAPTER_RANGE_RE = re.compile(r"^(?P<book>.*?)\s*(?P<c1>\d+)\s*-\s*(?P<c2>\d+)$")
 _CHAPTER_RE = re.compile(r"^(?P<book>.*?)\s*(?P<chap>\d+)$")
 
 
@@ -109,11 +113,15 @@ def parse_references(text: str) -> tuple[list[Reference], list[str]]:
         if not tok:
             continue
 
+        # 1) 절/절범위 (콜론·점 포함)  2) 장 범위 "C1-C2"  3) 단일 장
         m = _RANGE_RE.match(tok)
-        whole = False
+        kind = "verse"
+        if m is None:
+            m = _CHAPTER_RANGE_RE.match(tok)
+            kind = "chapter_range"
         if m is None:
             m = _CHAPTER_RE.match(tok)
-            whole = True
+            kind = "chapter"
         if m is None:
             errors.append(tok)
             continue
@@ -130,8 +138,23 @@ def parse_references(text: str) -> tuple[list[Reference], list[str]]:
             errors.append(tok)
             continue
 
+        if kind == "chapter_range":
+            c1, c2 = int(m.group("c1")), int(m.group("c2"))
+            if c2 < c1:
+                c1, c2 = c2, c1
+            chap_refs = [
+                _make_reference(current_book[0], current_book[1], c, None, None)
+                for c in range(c1, c2 + 1)
+            ]
+            chap_refs = [r for r in chap_refs if r is not None]
+            if chap_refs:
+                refs.extend(chap_refs)
+            else:
+                errors.append(tok)
+            continue
+
         chap = int(m.group("chap"))
-        if whole:
+        if kind == "chapter":
             ref = _make_reference(current_book[0], current_book[1], chap, None, None)
         else:
             # 범위 끝에 장이 다시 적혔고(예: 4:6-4:22) 시작 장과 다르면 교차 장 → 미지원.
