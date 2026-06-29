@@ -98,6 +98,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.refresh_tooltip": "현재 화면의 구절을 캐시 무시하고 다시 가져옵니다 (오래되거나 누락된 본문 갱신).",
         "selector.jump": "↦ 패널",
         "selector.jump_tooltip": "패널 번호로 이동합니다 (4개 초과 시 가로 스크롤).",
+        "selector.undo": "↶ 되돌리기",
+        "selector.undo_tooltip": "직전 상태로 되돌립니다 (Ctrl+Z). 조회를 잘못 눌러 덮어썼을 때.",
+        "undo.none": "되돌릴 상태가 없습니다.",
+        "undo.done": "되돌렸습니다.",
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
@@ -122,6 +126,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "예) 2 Tim. 4:6-4:22 || 1 Tim. 6:12, 2 Tim 1:4, 4:21 || Col 4:14, Philem 1:24"
         ),
         "popup.title": "구절 미리보기",
+        "popup.lookup": "조회",
+        "popup.lookup_tooltip": "이 구절들로 화면을 덮어씁니다.",
+        "popup.add": "＋ 추가",
+        "popup.add_tooltip": "현재 화면 뒤에 패널로 추가합니다.",
+        "popup.close": "닫기",
         "jump.title": "패널로 이동",
         "jump.label": "이동할 패널 번호 (1–{n}):",
         "jump.none": "표시 중인 패널이 없습니다.",
@@ -142,6 +151,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.bookmark": "북마크 추가",
         "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
         "panel.remove_tooltip": "이 패널 삭제 (구절 포함)",
+        "panel.label": "패널 {n}",
         "passage.max_title": "패널 한도",
         "passage.max_body": "패널은 최대 {n}개까지예요.",
         "passage.max_reached": "패널은 최대 {n}개 — 처음 {n}개만 표시합니다.",
@@ -177,12 +187,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "library.close": "닫기",
         "library.delete_confirm_title": "모음 삭제",
         "library.delete_confirm_body": "'{name}' 모음을 삭제할까요? (본문 캐시는 지워지지 않습니다)",
-        "filter.show_translations": "표시할 번역:",
+        "filter.show_translations": "선택한 패널 번역:",
         "filter.interleave": "번갈아보기",
         "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
         "filter.font_label": "글자:",
         "filter.font_minus": "본문 글자 작게 (Ctrl+-)",
         "filter.font_plus": "본문 글자 크게 (Ctrl+=)",
+        "filter.reorder": "역본 순서",
+        "filter.reorder_tooltip": "역본이 표시되는 순서를 바꿉니다.",
+        "reorder.title": "역본 순서 조정",
+        "reorder.intro": "역본을 선택하고 위/아래로 옮겨 표시 순서를 정하세요.",
+        "reorder.up": "▲ 위로",
+        "reorder.down": "▼ 아래로",
+        "reorder.ok": "적용",
         "verse.interlinear_section": "원어 (BibleHub Interlinear)",
         "verse.commentary_section": "주석 (BibleHub Commentaries)",
         "verse.note_section": "메모",
@@ -327,6 +344,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.refresh_tooltip": "Re-fetch the current passages ignoring the cache (refresh stale or missing text).",
         "selector.jump": "↦ Panel",
         "selector.jump_tooltip": "Jump to a panel by number (horizontal scroll when over 4).",
+        "selector.undo": "↶ Undo",
+        "selector.undo_tooltip": "Revert to the previous state (Ctrl+Z) — e.g. after an accidental Look up.",
+        "undo.none": "Nothing to undo.",
+        "undo.done": "Reverted.",
         "selector.side_on": "Original / Commentary / Notes",
         "selector.side_off": "Original / Commentary / Notes (off)",
         "selector.side_tooltip": "F9: toggle the right panel",
@@ -351,6 +372,11 @@ STRINGS: dict[str, dict[str, str]] = {
             "e.g.  2 Tim. 4:6-4:22 || 1 Tim. 6:12, 2 Tim 1:4, 4:21 || Col 4:14, Philem 1:24"
         ),
         "popup.title": "Passage preview",
+        "popup.lookup": "Look up",
+        "popup.lookup_tooltip": "Replace the view with these passages.",
+        "popup.add": "＋ Add",
+        "popup.add_tooltip": "Append these as panels after the current view.",
+        "popup.close": "Close",
         "jump.title": "Jump to panel",
         "jump.label": "Panel number (1–{n}):",
         "jump.none": "No panels on screen.",
@@ -371,6 +397,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "block.bookmark": "Add bookmark",
         "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
         "panel.remove_tooltip": "Delete this panel (with its passages)",
+        "panel.label": "Panel {n}",
         "passage.max_title": "Panel limit",
         "passage.max_body": "At most {n} panels.",
         "passage.max_reached": "Max {n} panels — showing the first {n}.",
@@ -406,12 +433,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "library.close": "Close",
         "library.delete_confirm_title": "Delete set",
         "library.delete_confirm_body": "Delete the set '{name}'? (verse cache is not removed)",
-        "filter.show_translations": "Show translations:",
+        "filter.show_translations": "Selected panel translations:",
         "filter.interleave": "Interleave",
         "filter.interleave_tooltip": "Group translations per verse.",
         "filter.font_label": "Font:",
         "filter.font_minus": "Smaller verse text (Ctrl+-)",
         "filter.font_plus": "Larger verse text (Ctrl+=)",
+        "filter.reorder": "Order",
+        "filter.reorder_tooltip": "Change the order translations are shown in.",
+        "reorder.title": "Translation order",
+        "reorder.intro": "Select a translation and move it up/down to set the display order.",
+        "reorder.up": "▲ Up",
+        "reorder.down": "▼ Down",
+        "reorder.ok": "Apply",
         "verse.interlinear_section": "Original (BibleHub Interlinear)",
         "verse.commentary_section": "Commentary (BibleHub Commentaries)",
         "verse.note_section": "Notes",
@@ -573,9 +607,15 @@ def _esc(text: str) -> str:
 
 @dataclass
 class Panel:
-    """세로 구절 묶음. blocks 는 위→아래 구절 순서, interleave 는 패널별 번갈아보기."""
+    """세로 구절 묶음. blocks 는 위→아래 구절 순서, interleave 는 패널별 번갈아보기.
+
+    #4 패널별 역본: trans_order(표시 순서, 전체 코드)와 trans_enabled(켜진 역본)이
+    None 이면 전체 기본값을 따르고, 값이 있으면 그 패널만의 순서/선택을 쓴다.
+    """
     blocks: list[Reference] = field(default_factory=list)
     interleave: bool = False
+    trans_order: list[str] | None = None        # 표시 순서 (전체 코드의 순열)
+    trans_enabled: list[str] | None = None       # 켜진 역본 (부분집합)
 
 
 # ---------- 라이브러리 직렬화 ----------
@@ -600,7 +640,10 @@ def _ref_from_dict(d: dict) -> Reference:
 
 def serialize_panels(panels: list[Panel]) -> str:
     return json.dumps(
-        [{"interleave": p.interleave, "blocks": [_ref_to_dict(r) for r in p.blocks]}
+        [{"interleave": p.interleave,
+          "trans_order": p.trans_order,
+          "trans_enabled": p.trans_enabled,
+          "blocks": [_ref_to_dict(r) for r in p.blocks]}
          for p in panels],
         ensure_ascii=False,
     )
@@ -621,7 +664,13 @@ def deserialize_panels(payload: str) -> list[Panel]:
                     blocks.append(_ref_from_dict(d))
                 except Exception:
                     continue
-            out.append(Panel(blocks, bool(item.get("interleave", False))))
+            order = item.get("trans_order")
+            enabled = item.get("trans_enabled")
+            out.append(Panel(
+                blocks, bool(item.get("interleave", False)),
+                list(order) if isinstance(order, list) else None,
+                list(enabled) if isinstance(enabled, list) else None,
+            ))
         else:  # 구버전: 구절 하나 → 패널 하나
             try:
                 out.append(Panel([_ref_from_dict(item)]))
@@ -1281,6 +1330,65 @@ class BookmarksDialog(QDialog):
         self.refresh()
 
 
+class TranslationOrderDialog(QDialog):
+    """역본(번역본) 표시 순서를 위/아래로 조정 (#5)."""
+
+    def __init__(self, codes: list[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("reorder.title"))
+        self.resize(320, 380)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(8)
+        intro = QLabel(tr("reorder.intro"))
+        intro.setStyleSheet("color:#888;")
+        intro.setWordWrap(True)
+        v.addWidget(intro)
+
+        self.listw = QListWidget()
+        for code in codes:
+            it = QListWidgetItem(CrossBibleFetcher.TRANSLATION_LABELS[code])
+            it.setData(Qt.ItemDataRole.UserRole, code)
+            self.listw.addItem(it)
+        self.listw.setCurrentRow(0)
+        v.addWidget(self.listw, 1)
+
+        move_row = QHBoxLayout()
+        up_btn = QPushButton(tr("reorder.up"))
+        up_btn.clicked.connect(lambda: self._move(-1))
+        down_btn = QPushButton(tr("reorder.down"))
+        down_btn.clicked.connect(lambda: self._move(+1))
+        move_row.addWidget(up_btn)
+        move_row.addWidget(down_btn)
+        move_row.addStretch(1)
+        v.addLayout(move_row)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton(tr("reorder.ok"))
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton(tr("library.close"))
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch(1)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        v.addLayout(btn_row)
+
+    def _move(self, delta: int):
+        row = self.listw.currentRow()
+        new = row + delta
+        if row < 0 or new < 0 or new >= self.listw.count():
+            return
+        it = self.listw.takeItem(row)
+        self.listw.insertItem(new, it)
+        self.listw.setCurrentRow(new)
+
+    def ordered_codes(self) -> list[str]:
+        return [
+            self.listw.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self.listw.count())
+        ]
+
+
 class VersesWorker(QObject):
     """필요한 (구절, 번역본) 쌍의 '본문'만 가져온다. 원어/주석은 지연 로딩.
 
@@ -1351,6 +1459,10 @@ class PassagePopup(QDialog):
     캐시된 본문은 즉시, 안 받은 번역본만 백그라운드로 채운다. '||' 는 구분선으로 표시.
     """
 
+    # 미리보기에 띄운 구절들을 화면에 반영하라는 요청 (#2).
+    do_lookup = pyqtSignal(object)   # 조회: 기존 화면을 이 패널들로 덮어쓰기
+    do_add = pyqtSignal(object)      # ＋추가: 현재 뒤에 패널로 추가
+
     def __init__(self, fetcher: CrossBibleFetcher, parent=None):
         super().__init__(parent)
         self.fetcher = fetcher
@@ -1361,6 +1473,21 @@ class PassagePopup(QDialog):
         self.browser = QTextBrowser()
         self.browser.setOpenExternalLinks(True)
         v.addWidget(self.browser)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        self.lookup_btn = QPushButton(tr("popup.lookup"))
+        self.lookup_btn.setToolTip(tr("popup.lookup_tooltip"))
+        self.lookup_btn.clicked.connect(self._emit_lookup)
+        btn_row.addWidget(self.lookup_btn)
+        self.add_btn = QPushButton(tr("popup.add"))
+        self.add_btn.setToolTip(tr("popup.add_tooltip"))
+        self.add_btn.clicked.connect(self._emit_add)
+        btn_row.addWidget(self.add_btn)
+        self.close_btn = QPushButton(tr("popup.close"))
+        self.close_btn.clicked.connect(self.close)
+        btn_row.addWidget(self.close_btn)
+        v.addLayout(btn_row)
 
         self._panels: list[Panel] = []
         self._translations: list[str] = []
@@ -1389,6 +1516,16 @@ class PassagePopup(QDialog):
         self.raise_()
         self.activateWindow()
         self._fetch(targets)
+
+    def _emit_lookup(self):
+        if self._panels:
+            self.do_lookup.emit(self._panels)
+        self.close()
+
+    def _emit_add(self):
+        if self._panels:
+            self.do_add.emit(self._panels)
+        self.close()
 
     def _fetch(self, targets):
         if self._thread is not None:
@@ -1455,6 +1592,16 @@ def _hline() -> QFrame:
     line.setFrameShape(QFrame.Shape.HLine)
     line.setFrameShadow(QFrame.Shadow.Sunken)
     return line
+
+
+class _ClickableFrame(QFrame):
+    """클릭하면 clicked 를 내보내는 패널 프레임 (#4 패널 선택). 자식 버튼 클릭은 그대로."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, e):
+        self.clicked.emit()
+        super().mousePressEvent(e)
 
 
 class InterlinearTable(QTableWidget):
@@ -1719,10 +1866,13 @@ class MainWindow(QMainWindow):
         self._panel_widgets: list[QWidget] = []   # 패널 점프용
         self._passage_popup: "PassagePopup | None" = None  # Enter 미리보기 팝업
         self._bookmark_dialog: "BookmarksDialog | None" = None
+        self._undo_stack: list[list[Panel]] = []   # 조회/변경 직전 상태 (되돌리기)
+        self._selected_panel: int = 0   # #4 선택된 패널 (역본 필터가 적용될 대상)
         try:
             self._font_scale = int(self.settings.value("font_scale", 0) or 0)
         except (TypeError, ValueError):
             self._font_scale = 0
+        self._translation_order = self._load_translation_order()
 
         self.setWindowTitle(tr("app.title"))
         self.resize(1700, 1000)
@@ -1755,6 +1905,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl++"), self, activated=lambda: self._change_font(+1))
         QShortcut(QKeySequence("Ctrl+-"), self, activated=lambda: self._change_font(-1))
         QShortcut(QKeySequence("Ctrl+0"), self, activated=self._reset_font)
+        QShortcut(QKeySequence("Ctrl+Z"), self, activated=self._undo)
 
         self._on_book_changed(0)
 
@@ -1951,6 +2102,11 @@ class MainWindow(QMainWindow):
         self.jump_btn.clicked.connect(self._on_jump_panel)
         row.addWidget(self.jump_btn)
 
+        self.undo_btn = QPushButton(tr("selector.undo"))
+        self.undo_btn.setToolTip(tr("selector.undo_tooltip"))
+        self.undo_btn.clicked.connect(self._undo)
+        row.addWidget(self.undo_btn)
+
         row.addStretch(1)
 
         self.side_toggle_btn = QPushButton(tr("selector.side_on"))
@@ -1989,14 +2145,35 @@ class MainWindow(QMainWindow):
 
     def _build_translation_filter(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.addWidget(QLabel(tr("filter.show_translations")))
+        self._translation_filter_row = row
         self.translation_checks: dict[str, QCheckBox] = {}
-        for code in CrossBibleFetcher.TRANSLATIONS:
+        self._populate_translation_filter(row, {})
+        return row
+
+    def _populate_translation_filter(self, row: QHBoxLayout, checked: dict[str, bool]):
+        """필터 줄 내용을 (전체 기본 순서대로) 채운다. checked 로 기존 체크 상태 복원."""
+        order = self._ordered_translations()
+        self._populate_translation_filter_ordered(
+            row, order, {c: checked.get(c, True) for c in order})
+
+    def _populate_translation_filter_ordered(self, row: QHBoxLayout, order: list[str],
+                                             checked: dict[str, bool]):
+        """주어진 순서/체크 상태로 필터 줄을 채운다."""
+        self.translation_checks = {}
+        row.addWidget(QLabel(tr("filter.show_translations")))
+        for code in order:
             cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
-            cb.setChecked(True)
-            cb.toggled.connect(lambda checked, c=code: self._on_translation_toggled(c, checked))
+            cb.setChecked(checked.get(code, True))
+            cb.toggled.connect(lambda c2, c=code: self._on_translation_toggled(c, c2))
             self.translation_checks[code] = cb
             row.addWidget(cb)
+
+        # 역본 순서 조정
+        reorder = QPushButton(tr("filter.reorder"))
+        reorder.setToolTip(tr("filter.reorder_tooltip"))
+        reorder.clicked.connect(self._on_reorder_translations)
+        row.addWidget(reorder)
+
         row.addStretch(1)
 
         # 본문 글자 크기 조절
@@ -2011,7 +2188,6 @@ class MainWindow(QMainWindow):
         plus.setToolTip(tr("filter.font_plus"))
         plus.clicked.connect(lambda: self._change_font(+1))
         row.addWidget(plus)
-        return row
 
     def _build_translations_column(self) -> QWidget:
         # 구절 패널들을 좌→우로 나란히. 4개까지 한 화면, 그 이상은 가로 스크롤.
@@ -2074,7 +2250,7 @@ class MainWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
 
-    def _apply_panels(self, panels: list[Panel], force: bool = False):
+    def _apply_panels(self, panels: list[Panel], force: bool = False, record: bool = True):
         """패널 구조를 정규화해 적용하고, 필요한 것만 조회한다.
 
         본문/오류/절목록은 Reference 로 키잉되어 있어, 순서를 바꾸거나 블록을 옮겨도
@@ -2082,7 +2258,12 @@ class MainWindow(QMainWindow):
         새로 생긴 구절(또는 force) 만 백그라운드로 조회한다.
 
         - 전역 중복 제거(같은 구절은 첫 등장만) · 빈 패널 유지 · 패널 최대 MAX_PANELS 개.
+        - record=True 면 바꾸기 직전의 현재 상태를 되돌리기(undo) 스택에 저장.
         """
+        if record:
+            self._undo_stack.append(self._copy_panels())
+            if len(self._undo_stack) > 30:
+                self._undo_stack.pop(0)
         seen: set[Reference] = set()
         norm: list[Panel] = []
         for p in panels:
@@ -2091,11 +2272,13 @@ class MainWindow(QMainWindow):
                 if ref not in seen:
                     seen.add(ref)
                     blocks.append(ref)
-            norm.append(Panel(blocks, p.interleave))
+            norm.append(Panel(blocks, p.interleave, p.trans_order, p.trans_enabled))
         if len(norm) > self.MAX_PANELS:
             norm = norm[:self.MAX_PANELS]
             self.statusBar().showMessage(tr("passage.max_reached", n=self.MAX_PANELS), 4000)
         self._panels = norm
+        if not (0 <= self._selected_panel < len(norm)):
+            self._selected_panel = 0
         flat = [ref for p in norm for ref in p.blocks]
         self._passages = flat
 
@@ -2112,24 +2295,26 @@ class MainWindow(QMainWindow):
         # 캐시에 있는 본문은 UI 스레드에서 즉시(동기 SQL) 채운다. 그래야 캐시된 번역본이
         # '캐시 안 된 번역본의 네트워크 대기' 뒤에 줄 서지 않고 바로 뜬다.
         # 진짜 없는 (구절, 번역본) 만 백그라운드 네트워크 조회 대상(targets)으로 남긴다.
-        enabled = self._enabled_translations()
+        # 역본은 패널마다 다를 수 있어(#4) 각 패널의 켜진 역본 합집합만 조회한다.
         targets: list[tuple[Reference, str]] = []
-        for ref in flat:
-            for t in enabled:
-                if (ref, t) in self._verse_data:
-                    continue
-                if not force:
-                    cached = self.fetcher.get_cached(t, ref)
-                    if cached is not None:
-                        self._verse_data[(ref, t)] = cached
-                        if ref.whole_chapter and ref not in self._passage_verses:
-                            self._passage_verses[ref] = [n for n, _ in cached]
+        for p in norm:
+            for ref in p.blocks:
+                for t in self._panel_enabled(p):
+                    if (ref, t) in self._verse_data:
                         continue
-                targets.append((ref, t))
+                    if not force:
+                        cached = self.fetcher.get_cached(t, ref)
+                        if cached is not None:
+                            self._verse_data[(ref, t)] = cached
+                            if ref.whole_chapter and ref not in self._passage_verses:
+                                self._passage_verses[ref] = [n for n, _ in cached]
+                            continue
+                    targets.append((ref, t))
 
         # 화면을 그린다 (캐시된 본문은 이미 채워져 바로 보임). 우측 블록은 재사용.
         self._rebuild_side()
         self._render_left()
+        self._sync_filter_row()   # 필터 줄을 선택된 패널 역본에 맞춤 (#4)
 
         if flat:
             head = _ref_header(flat[0]) + (f" +{len(flat) - 1}" if len(flat) > 1 else "")
@@ -2194,10 +2379,12 @@ class MainWindow(QMainWindow):
         self._panel_widgets = []
         if not self._panels:
             return
-        enabled = self._enabled_translations()
+        if not (0 <= self._selected_panel < len(self._panels)):
+            self._selected_panel = 0
         self._translations_container.setUpdatesEnabled(False)
         try:
             for panel_idx, panel in enumerate(self._panels):
+                enabled = self._panel_enabled(panel)   # #4 패널별 역본
                 w = self._render_panel(panel_idx, panel, enabled)
                 self._panel_widgets.append(w)
                 self._left_layout.addWidget(w, 1)
@@ -2206,15 +2393,26 @@ class MainWindow(QMainWindow):
 
     def _render_panel(self, panel_idx: int, panel: Panel,
                       enabled: list[str]) -> QWidget:
-        col = QWidget()
+        col = _ClickableFrame()
+        col.setObjectName("panelFrame")
+        col.clicked.connect(lambda p=panel_idx: self._select_panel(p))
+        selected = (panel_idx == self._selected_panel)
+        # 선택된 패널만 강조 테두리 (#4). objectName 한정으로 자식 위젯엔 영향 없음.
+        border = "2px solid #4a90d9" if selected else "1px solid rgba(128,128,128,0.35)"
+        col.setStyleSheet(f"#panelFrame {{ border: {border}; border-radius: 4px; }}")
         col.setMinimumWidth(self.PANEL_MIN_WIDTH)  # 4개 초과 시 가로 스크롤 유발
         cv = QVBoxLayout(col)
         cv.setContentsMargins(4, 6, 4, 4)
         cv.setSpacing(3)
 
-        # 패널 상단 바: (번갈아보기 토글) + 패널 삭제 🗑
+        # 패널 상단 바: 패널번호(선택표시) + (번갈아보기 토글) + 패널 삭제 🗑
         top = QHBoxLayout()
         top.setSpacing(4)
+        num = QLabel(tr("panel.label", n=panel_idx + 1) + (" ●" if selected else ""))
+        num.setStyleSheet(
+            "color:#4a90d9; font-weight:bold;" if selected else "color:#888;"
+        )
+        top.addWidget(num)
         if panel.blocks:
             il = QCheckBox(tr("filter.interleave"))
             il.setChecked(panel.interleave)
@@ -2493,7 +2691,14 @@ class MainWindow(QMainWindow):
         return Reference(en, ko_canonical, self.chap_box.value(), vs, ve)
 
     def _copy_panels(self) -> list[Panel]:
-        return [Panel(list(p.blocks), p.interleave) for p in self._panels]
+        return [
+            Panel(
+                list(p.blocks), p.interleave,
+                None if p.trans_order is None else list(p.trans_order),
+                None if p.trans_enabled is None else list(p.trans_enabled),
+            )
+            for p in self._panels
+        ]
 
     def _on_lookup(self):
         ref = self._current_ref()
@@ -2525,6 +2730,15 @@ class MainWindow(QMainWindow):
         # 현재 화면의 구절을 캐시 무시하고 다시 가져온다 (오래되거나 누락된 본문 갱신).
         if self._panels:
             self._apply_panels(self._panels, force=True)
+
+    def _undo(self):
+        # 직전 상태로 되돌리기 (조회를 잘못 눌러 덮어써졌을 때 등).
+        if not self._undo_stack:
+            self.statusBar().showMessage(tr("undo.none"), 2000)
+            return
+        prev = self._undo_stack.pop()
+        self._apply_panels(prev, record=False)
+        self.statusBar().showMessage(tr("undo.done"), 2000)
 
     # ---- 블록/패널 조작 ----
 
@@ -2710,7 +2924,21 @@ class MainWindow(QMainWindow):
             return
         if self._passage_popup is None:
             self._passage_popup = PassagePopup(self.fetcher, self)
+            self._passage_popup.do_lookup.connect(self._on_popup_lookup)
+            self._passage_popup.do_add.connect(self._on_popup_add)
         self._passage_popup.show_panels(panels, self._enabled_translations())
+
+    def _on_popup_lookup(self, panels):
+        # 팝업의 '조회': 미리보기 구절들로 화면을 덮어쓴다.
+        if panels:
+            self._apply_panels([Panel(list(p.blocks), p.interleave) for p in panels])
+
+    def _on_popup_add(self, panels):
+        # 팝업의 '＋추가': 현재 패널 뒤에 추가.
+        if panels:
+            self._apply_panels(
+                self._copy_panels() + [Panel(list(p.blocks), p.interleave) for p in panels]
+            )
 
     def _on_panels_to_text(self):
         # 현재 패널 구성을 '||' 텍스트로 뽑아 입력란 + 클립보드에 넣는다 (영문 헤더라 다시 파싱 가능).
@@ -2819,29 +3047,146 @@ class MainWindow(QMainWindow):
             self._panels[panel_idx].interleave = checked
             self._render_left()
 
-    def _on_translation_toggled(self, code: str, checked: bool):
-        # 최소 한 개는 켜둔다
-        if not any(cb.isChecked() for cb in self.translation_checks.values()):
-            cb = self.translation_checks[code]
-            cb.blockSignals(True)
-            cb.setChecked(True)
-            cb.blockSignals(False)
-            self.statusBar().showMessage(tr("status.min_one_translation"), 3000)
-            return
-        # 켠 번역본의 본문이 아직 없으면 그 번역만 조회. 끄면 좌측만 다시 그림.
-        missing = checked and any(
-            (ref, code) not in self._verse_data for ref in self._passages
-        )
-        if missing:
-            self._apply_panels(self._panels)
-        else:
-            self._render_left()
+    def _load_translation_order(self) -> list[str]:
+        """저장된 역본 표시 순서. 없거나 망가졌으면 기본 순서."""
+        all_codes = list(CrossBibleFetcher.TRANSLATIONS)
+        raw = self.settings.value("translation_order", "") or ""
+        saved = [c for c in str(raw).split(",") if c in all_codes]
+        # 저장 이후 새로 추가된 역본(예: SAENEW)은 뒤에 붙인다.
+        ordered = saved + [c for c in all_codes if c not in saved]
+        return ordered
+
+    def _save_translation_order(self):
+        self.settings.setValue("translation_order", ",".join(self._translation_order))
+        self.settings.sync()
+
+    def _ordered_translations(self) -> list[str]:
+        """사용자 지정 순서대로의 전체 역본 코드."""
+        return list(self._translation_order)
+
+    # ---- 패널별 역본 (#4) ----
+
+    def _selected(self) -> "Panel | None":
+        if 0 <= self._selected_panel < len(self._panels):
+            return self._panels[self._selected_panel]
+        return None
+
+    def _panel_order(self, panel: "Panel") -> list[str]:
+        """패널의 역본 표시 순서. 자체 설정이 없으면 전체 기본 순서."""
+        if panel.trans_order is not None:
+            return list(panel.trans_order)
+        return list(self._translation_order)
+
+    def _panel_enabled(self, panel: "Panel") -> list[str]:
+        """패널에서 켜진 역본을, 그 패널의 순서대로."""
+        order = self._panel_order(panel)
+        if panel.trans_enabled is None:
+            return list(order)   # 기본: 전부 켬
+        return [c for c in order if c in panel.trans_enabled]
 
     def _enabled_translations(self) -> list[str]:
-        return [
-            code for code in CrossBibleFetcher.TRANSLATIONS
-            if self.translation_checks[code].isChecked()
-        ]
+        """팝업/검색/다운로드의 기본 역본 — 선택된 패널 기준(없으면 전체 기본)."""
+        panel = self._selected()
+        if panel is not None:
+            enabled = self._panel_enabled(panel)
+            if enabled:
+                return enabled
+        return list(self._translation_order)
+
+    def _on_translation_toggled(self, code: str, checked: bool):
+        # 체크박스는 '선택된 패널' 에만 적용 (#4). 패널이 없으면 무시.
+        panel = self._selected()
+        if panel is None:
+            return
+        order = self._panel_order(panel)
+        if panel.trans_enabled is None:
+            enabled = list(order)            # None(전부 켬) → 구체 리스트로 구체화
+        else:
+            enabled = [c for c in order if c in panel.trans_enabled]
+        if checked and code not in enabled:
+            enabled.append(code)
+        elif not checked and code in enabled:
+            enabled.remove(code)
+        # 적어도 한 개는 켜둔다 (전부 끄면 표시할 게 없으므로 되돌림).
+        if not enabled:
+            self.translation_checks[code].blockSignals(True)
+            self.translation_checks[code].setChecked(True)
+            self.translation_checks[code].blockSignals(False)
+            self.statusBar().showMessage(tr("status.min_one_translation"), 3000)
+            return
+        panel.trans_order = order
+        panel.trans_enabled = [c for c in order if c in enabled]
+        self._refetch_and_render()
+
+    def _on_reorder_translations(self):
+        # 순서 조정도 '선택된 패널' 기준 (#4). 패널이 없으면 전체 기본 순서를 바꾼다.
+        panel = self._selected()
+        initial = self._panel_order(panel) if panel is not None else list(self._translation_order)
+        dlg = TranslationOrderDialog(initial, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_order = dlg.ordered_codes()
+        if not new_order or new_order == initial:
+            return
+        if panel is not None:
+            panel.trans_order = new_order
+            # 켜진 역본은 유지하되 새 순서로 정렬
+            if panel.trans_enabled is not None:
+                panel.trans_enabled = [c for c in new_order if c in panel.trans_enabled]
+        else:
+            self._translation_order = new_order
+            self._save_translation_order()
+        self._sync_filter_row()
+        self._refetch_and_render()
+
+    def _refetch_and_render(self):
+        """패널별 역본이 바뀌었을 때 새 역본만 조회하고 다시 그린다."""
+        targets: list[tuple[Reference, str]] = []
+        for p in self._panels:
+            for ref in p.blocks:
+                for t in self._panel_enabled(p):
+                    if (ref, t) in self._verse_data:
+                        continue
+                    cached = self.fetcher.get_cached(t, ref)
+                    if cached is not None:
+                        self._verse_data[(ref, t)] = cached
+                        if ref.whole_chapter and ref not in self._passage_verses:
+                            self._passage_verses[ref] = [n for n, _ in cached]
+                        continue
+                    targets.append((ref, t))
+        self._rebuild_side()
+        self._render_left()
+        self._fetch(targets, False)
+
+    def _select_panel(self, idx: int):
+        if idx == self._selected_panel:
+            return
+        self._selected_panel = idx
+        self._sync_filter_row()
+        self._render_left()   # 선택 테두리 갱신
+
+    def _sync_filter_row(self):
+        """필터 줄(체크박스+순서)을 현재 선택된 패널 상태로 다시 만든다."""
+        self._rebuild_translation_filter(reflect_selected=True)
+
+    def _rebuild_translation_filter(self, checked: dict[str, bool] | None = None,
+                                    reflect_selected: bool = False):
+        """필터 줄의 체크박스를 (선택된 패널 또는 주어진 상태로) 다시 만든다."""
+        row = self._translation_filter_row
+        while row.count():
+            item = row.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        if reflect_selected:
+            panel = self._selected()
+            if panel is not None:
+                order = self._panel_order(panel)
+                enabled = set(self._panel_enabled(panel))
+                self._populate_translation_filter_ordered(
+                    row, order, {c: (c in enabled) for c in order})
+                return
+        self._populate_translation_filter(row, checked or {})
 
     # ---- 도움말 ----
 

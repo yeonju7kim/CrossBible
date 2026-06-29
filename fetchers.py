@@ -471,9 +471,10 @@ class CrossBibleFetcher:
 
     POLITE_DELAY_SEC = 0.7
 
-    TRANSLATIONS = ["GAE", "WLB", "KLB", "NIV", "ESV"]
+    TRANSLATIONS = ["GAE", "SAENEW", "WLB", "KLB", "NIV", "ESV"]
     TRANSLATION_LABELS = {
         "GAE": "개역개정",
+        "SAENEW": "새번역",
         "WLB": "우리말성경",
         "KLB": "현대인의 성경",
         "NIV": "NIV",
@@ -502,8 +503,8 @@ class CrossBibleFetcher:
     # ---- 챕터 단위 다운로드 (오프라인 사전 캐시용) ----
 
     def fetch_chapter(self, translation: str, book_en: str, chapter: int) -> list[tuple[int, str]]:
-        if translation == "GAE":
-            return self.bsk.fetch_chapter(book_en, chapter, "GAE")
+        if translation in ("GAE", "SAENEW"):  # 둘 다 대한성서공회, version 코드만 다름
+            return self.bsk.fetch_chapter(book_en, chapter, translation)
         if translation in ("NIV", "ESV", "KLB"):
             return self.bg.fetch_chapter(book_en, chapter, translation)
         if translation == "WLB":
@@ -617,8 +618,8 @@ class CrossBibleFetcher:
             if cached is not None:
                 return cached
         self._throttle()
-        if translation == "GAE":
-            verses = self.bsk.fetch(ref, "GAE")
+        if translation in ("GAE", "SAENEW"):  # 대한성서공회 (version 코드 = 그대로)
+            verses = self.bsk.fetch(ref, translation)
         elif translation == "WLB":
             verses = self.nocr.fetch(ref, "WLB")
         elif translation in ("NIV", "ESV", "KLB"):
