@@ -44,6 +44,11 @@ def _normalize(text: str) -> str:
     #   –(en) —(em) −(minus) ~ ～(전각) 〜(물결)
     for ch in ("–", "—", "−", "~", "～", "〜"):
         text = text.replace(ch, "-")
+    # 한글 단위(장/절)를 표준 표기로. "롬 11장"→"롬 11", "요 3장 16절"→"요 3:16",
+    # "롬 11장-13장"→"롬 11-13", "요 3장 14절-21절"→"요 3:14-21".
+    text = re.sub(r"(\d+)\s*장\s*(\d+)\s*절", r"\1:\2", text)  # 장+절
+    text = re.sub(r"(\d+)\s*장", r"\1", text)                  # 남은 장 (전체/범위)
+    text = re.sub(r"(\d+)\s*절", r"\1", text)                  # 남은 절
     return text
 
 

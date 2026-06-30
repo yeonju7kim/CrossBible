@@ -18,10 +18,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Virtual env
-if not exist .venv (
-    echo [1/3] Creating virtual environment...
-    python -m venv .venv
+REM Virtual env lives in the app cache folder (~/.crossbible), not the project dir.
+set "CB_CACHE=%USERPROFILE%\.crossbible"
+set "CB_VENV=%CB_CACHE%\.venv"
+if not exist "%CB_CACHE%" mkdir "%CB_CACHE%"
+if not exist "%CB_VENV%" (
+    echo [1/3] Creating virtual environment in %CB_VENV% ...
+    python -m venv "%CB_VENV%"
     if errorlevel 1 (
         echo [ERROR] Failed to create virtual environment
         pause
@@ -29,7 +32,7 @@ if not exist .venv (
     )
 
     echo [2/3] Installing dependencies (first run only)...
-    call .venv\Scripts\activate.bat
+    call "%CB_VENV%\Scripts\activate.bat"
     python -m pip install --upgrade pip
     python -m pip install -r requirements.txt
     if errorlevel 1 (
@@ -38,7 +41,7 @@ if not exist .venv (
         exit /b 1
     )
 ) else (
-    call .venv\Scripts\activate.bat
+    call "%CB_VENV%\Scripts\activate.bat"
 )
 
 echo [3/3] Launching CrossBible...
