@@ -16,15 +16,18 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-# 가상환경
-if [ ! -d .venv ]; then
-    echo "[1/4] Creating virtual environment..."
-    python3 -m venv .venv
+# 가상환경 — 프로젝트 폴더가 아니라 앱 캐시 폴더(~/.crossbible)에 둔다.
+CB_CACHE="$HOME/.crossbible"
+CB_VENV="$CB_CACHE/.venv"
+mkdir -p "$CB_CACHE"
+if [ ! -d "$CB_VENV" ]; then
+    echo "[1/4] Creating virtual environment in $CB_VENV ..."
+    python3 -m venv "$CB_VENV"
 fi
 
 echo "[2/4] Installing dependencies..."
 # shellcheck disable=SC1091
-source .venv/bin/activate
+source "$CB_VENV/bin/activate"
 python -m pip install --upgrade pip
 python -m pip install pyinstaller -r requirements.txt
 

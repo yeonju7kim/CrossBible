@@ -60,7 +60,7 @@
 
 ### Windows — 소스에서 직접 실행 (빌드 없이)
 
-이 저장소를 clone 또는 zip으로 받은 뒤 `run_windows.bat` 더블클릭. 처음 한 번만 venv를 만들고 `requirements.txt`를 설치한 다음 바로 실행됩니다.
+이 저장소를 clone 또는 zip으로 받은 뒤 `run_windows.bat` 더블클릭. 처음 한 번만 venv를 만들고 `requirements.txt`를 설치한 다음 바로 실행됩니다. venv 는 프로젝트 폴더가 아니라 앱 캐시 폴더(`%USERPROFILE%\.crossbible\.venv`)에 만들어집니다 — 프로젝트 폴더가 깨끗하게 유지되고, OneDrive 같은 동기화 폴더에 venv 가 올라가지 않아요.
 
 ### macOS — 앱으로 빌드 (.app)
 
@@ -71,7 +71,7 @@ bash build_mac.sh          # 또는: chmod +x build_mac.sh && ./build_mac.sh
 open dist/CrossBible.app
 ```
 
-`build_mac.sh` 가 venv 생성 → 의존성 설치 → `icon.png`→`icon.icns` 변환(`sips`/`iconutil`) → PyInstaller 로 `dist/CrossBible.app` 을 만듭니다. 서명이 안 된 앱이라 **처음 실행은 우클릭 → 열기**, 또는 *시스템 설정 → 개인정보 보호 및 보안 → '확인 없이 열기'* 가 필요할 수 있어요.
+`build_mac.sh` 가 venv 생성 → 의존성 설치 → `icon.png`→`icon.icns` 변환(`sips`/`iconutil`) → PyInstaller 로 `dist/CrossBible.app` 을 만듭니다. venv 는 앱 캐시 폴더(`~/.crossbible/.venv`)에 만들어집니다. 서명이 안 된 앱이라 **처음 실행은 우클릭 → 열기**, 또는 *시스템 설정 → 개인정보 보호 및 보안 → '확인 없이 열기'* 가 필요할 수 있어요.
 
 ### 일반 (macOS · Linux · 직접 venv)
 
