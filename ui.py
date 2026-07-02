@@ -90,8 +90,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.verse": "절",
         "selector.verse_tooltip": "조회할 절 범위 (시작~끝). '전체' 를 켜면 무시됩니다.",
         "selector.range_sep": "~",
-        "selector.lookup": "조회 (Ctrl+Enter)",
-        "selector.lookup_tooltip": "선택한 구절로 화면을 교체합니다 (Ctrl+Enter).",
+        "selector.lookup": "새로 보기 (Ctrl+Enter)",
+        "selector.lookup_tooltip": "기존 화면을 지우고 선택한 구절로 새로 채웁니다 (Ctrl+Enter).",
         "selector.whole": "전체",
         "selector.whole_tooltip": "장 전체를 조회합니다 (절 범위 무시).",
         "selector.add": "＋ 추가",
@@ -103,15 +103,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "selector.jump": "↦ 패널",
         "selector.jump_tooltip": "패널 번호로 이동합니다 (4개 초과 시 가로 스크롤).",
         "selector.undo": "↶ 되돌리기",
-        "selector.undo_tooltip": "직전 상태로 되돌립니다 (Ctrl+Z). 조회를 잘못 눌러 덮어썼을 때.",
+        "selector.undo_tooltip": "직전 상태로 되돌립니다 (Ctrl+Z). '새로 보기'를 잘못 눌러 덮어썼을 때.",
         "undo.none": "되돌릴 상태가 없습니다.",
         "undo.done": "되돌렸습니다.",
         "selector.side_on": "원어/주석/메모 패널",
         "selector.side_off": "원어/주석/메모 패널 (꺼짐)",
         "selector.side_tooltip": "F9: 오른쪽 패널 켜기/끄기",
         "multi.placeholder": "2 Timothy 4:6-4:22 || Numbers 15:1–12, Numbers 28:7 || 1 Tim. 6:12, Acts 20:24, 2 Tim 1:4, 4:21 || Colossians 4:14, Philemon 1:24 || Acts 12:12, 12:25, 13:5, 13:13, 15:37–40, Col 4:10, Philem 1:24 || Acts 20:4, Ephesians 6:21–22, Colossians 4:7–8",
-        "multi.lookup": "조회",
-        "multi.lookup_tooltip": "입력한 구절로 화면을 교체합니다 (|| 로 패널 분리).",
+        "multi.lookup": "새로 보기",
+        "multi.lookup_tooltip": "기존 화면을 지우고 입력한 구절로 새로 채웁니다 (|| 로 패널 분리).",
         "multi.add": "＋ 추가",
         "multi.add_tooltip": "입력한 구절을 현재 화면 뒤에 새 패널로 추가합니다 (|| 로 패널 분리).",
         "multi.to_text": "현재→텍스트",
@@ -128,12 +128,12 @@ STRINGS: dict[str, dict[str, str]] = {
             "  • 한글 장/절 단위도 됨 — 롬 11장, 요 3장 16절, 롬 11장-13장\n"
             "  • 책 생략 시 앞 구절의 책을 이어 씀 — 2 Tim 1:4, 4:21\n"
             "  • || 로 패널 나누기\n"
-            "  • Enter=팝업 미리보기 · 조회=패널 교체 · ＋추가=패널로 추가\n"
+            "  • Enter=팝업 미리보기 · 새로 보기=전체 교체 · ＋추가=패널로 추가\n"
             "\n"
             "예) 2 Tim. 4:6-4:22 || 1 Tim. 6:12, 2 Tim 1:4, 4:21 || Col 4:14, Philem 1:24"
         ),
         "popup.title": "구절 미리보기",
-        "popup.lookup": "조회",
+        "popup.lookup": "새로 보기",
         "popup.lookup_tooltip": "이 구절들로 화면을 덮어씁니다.",
         "popup.add": "＋ 추가",
         "popup.add_tooltip": "현재 화면 뒤에 패널로 추가합니다.",
