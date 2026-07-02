@@ -84,14 +84,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.looking_up": "{ref_ko} ({ref_en}) 조회 중…",
         "status.min_one_translation": "번역본을 최소 하나는 켜두세요.",
         "selector.book": "책",
+        "selector.book_tooltip": "책을 고르거나 이름을 입력해 검색하세요 (한/영, 약어 가능).",
         "selector.chapter": "장",
+        "selector.chapter_tooltip": "조회할 장 번호.",
         "selector.verse": "절",
+        "selector.verse_tooltip": "조회할 절 범위 (시작~끝). '전체' 를 켜면 무시됩니다.",
         "selector.range_sep": "~",
         "selector.lookup": "조회 (Ctrl+Enter)",
+        "selector.lookup_tooltip": "선택한 구절로 화면을 교체합니다 (Ctrl+Enter).",
         "selector.whole": "전체",
         "selector.whole_tooltip": "장 전체를 조회합니다 (절 범위 무시).",
         "selector.add": "＋ 추가",
-        "selector.add_tooltip": "맨 왼쪽 패널에 이 구절을 쌓습니다.",
+        "selector.add_tooltip": "선택된 패널에 이 구절을 쌓습니다 (패널을 클릭해 선택).",
         "selector.new_panel": "＋ 새 패널",
         "selector.new_panel_tooltip": "빈 패널을 추가합니다. ◀ ▶ 로 구절을 옮겨올 수 있어요.",
         "selector.refresh": "↻ 새로고침",
@@ -109,6 +113,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.lookup": "조회",
         "multi.lookup_tooltip": "입력한 구절로 화면을 교체합니다 (|| 로 패널 분리).",
         "multi.add": "＋ 추가",
+        "multi.add_tooltip": "입력한 구절을 현재 화면 뒤에 새 패널로 추가합니다 (|| 로 패널 분리).",
         "multi.to_text": "현재→텍스트",
         "multi.to_text_tooltip": "지금 화면의 패널 구성을 텍스트로 뽑아 클립보드에 복사합니다 (|| 구분).",
         "multi.copied_title": "복사됨",
@@ -154,6 +159,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel.empty": "(빈 패널)\n◀ ▶ 로 구절을 옮겨오세요",
         "panel.remove_tooltip": "이 패널 삭제 (구절 포함)",
         "panel.label": "패널 {n}",
+        "panel.select_tooltip": "클릭하면 이 패널이 선택됩니다. 추가·역본 설정이 선택된 패널에 적용돼요.",
         "passage.max_title": "패널 한도",
         "passage.max_body": "패널은 최대 {n}개까지예요.",
         "passage.max_reached": "패널은 최대 {n}개 — 처음 {n}개만 표시합니다.",
@@ -166,9 +172,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "bookmark.open": "북마크 보기…",
         "bookmark.added": "북마크에 추가됨: {ref}",
         "bookmark.dialog_title": "북마크",
-        "bookmark.intro": "저장한 구절입니다. 더블클릭하면 맨 왼쪽 패널에 추가됩니다.",
+        "bookmark.intro": "저장한 구절입니다. 더블클릭하면 선택된 패널에 추가됩니다.",
         "bookmark.empty": "북마크가 없습니다. 구절의 ★ 버튼이나 북마크 → 현재 선택 구절 북마크 추가 를 사용하세요.",
-        "bookmark.load": "맨 왼쪽 패널에 추가",
+        "bookmark.load": "선택된 패널에 추가",
         "bookmark.delete": "삭제",
         "library.save": "현재 구절 저장…",
         "library.open": "불러오기 / 관리…",
@@ -189,6 +195,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "library.delete_confirm_title": "모음 삭제",
         "library.delete_confirm_body": "'{name}' 모음을 삭제할까요? (본문 캐시는 지워지지 않습니다)",
         "filter.show_translations": "선택한 패널 번역:",
+        "filter.translation_check_tooltip": "이 역본을 선택된 패널에 표시할지 켜고 끕니다.",
         "filter.interleave": "번갈아보기",
         "filter.interleave_tooltip": "절 단위로 여러 번역을 묶어서 표시합니다.",
         "filter.font_label": "글자:",
@@ -240,7 +247,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "결과 없음",
         "search.too_many": "{n}건 (처음 {limit}건만 표시)",
         "search.empty_cache": "캐시가 비어 있습니다. 도구 → 성경 다운로드… 로 본문을 먼저 받으세요.",
-        "search.jump_hint": "더블클릭하면 맨 왼쪽 패널에 추가됩니다.",
+        "search.jump_hint": "더블클릭하면 선택된 패널에 추가됩니다.",
         "menu.help": "도움말",
         "menu.feedback": "건의사항 · 이슈 보내기…",
         "menu.about": "버전 정보…",
@@ -332,14 +339,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.looking_up": "Looking up {ref_ko} ({ref_en})…",
         "status.min_one_translation": "Keep at least one translation enabled.",
         "selector.book": "Book",
+        "selector.book_tooltip": "Pick a book or type its name to search (English/Korean, abbreviations OK).",
         "selector.chapter": "Chap",
+        "selector.chapter_tooltip": "Chapter number to look up.",
         "selector.verse": "Verse",
+        "selector.verse_tooltip": "Verse range to look up (start~end). Ignored when 'Whole' is on.",
         "selector.range_sep": "~",
         "selector.lookup": "Look up (Ctrl+Enter)",
+        "selector.lookup_tooltip": "Replace the view with the selected passage (Ctrl+Enter).",
         "selector.whole": "Whole",
         "selector.whole_tooltip": "Look up the whole chapter (ignores the verse range).",
         "selector.add": "＋ Add",
-        "selector.add_tooltip": "Stack this passage onto the leftmost panel.",
+        "selector.add_tooltip": "Stack this passage onto the selected panel (click a panel to select).",
         "selector.new_panel": "＋ New panel",
         "selector.new_panel_tooltip": "Add an empty panel. Move blocks into it with ◀ ▶.",
         "selector.refresh": "↻ Refresh",
@@ -357,6 +368,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "multi.lookup": "Look up",
         "multi.lookup_tooltip": "Replace the view with these passages (|| splits panels).",
         "multi.add": "＋ Add",
+        "multi.add_tooltip": "Append these passages as new panels after the current view (|| splits panels).",
         "multi.to_text": "→ Text",
         "multi.to_text_tooltip": "Copy the current panel layout to the clipboard as text (|| separated).",
         "multi.copied_title": "Copied",
@@ -402,6 +414,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel.empty": "(empty panel)\nMove blocks here with ◀ ▶",
         "panel.remove_tooltip": "Delete this panel (with its passages)",
         "panel.label": "Panel {n}",
+        "panel.select_tooltip": "Click to select this panel. Add and translation settings apply to the selected panel.",
         "passage.max_title": "Panel limit",
         "passage.max_body": "At most {n} panels.",
         "passage.max_reached": "Max {n} panels — showing the first {n}.",
@@ -414,9 +427,9 @@ STRINGS: dict[str, dict[str, str]] = {
         "bookmark.open": "Open bookmarks…",
         "bookmark.added": "Bookmarked: {ref}",
         "bookmark.dialog_title": "Bookmarks",
-        "bookmark.intro": "Your saved passages. Double-click to add to the leftmost panel.",
+        "bookmark.intro": "Your saved passages. Double-click to add to the selected panel.",
         "bookmark.empty": "No bookmarks yet. Use a passage's ★ button or Bookmarks → Bookmark current selection.",
-        "bookmark.load": "Add to leftmost panel",
+        "bookmark.load": "Add to selected panel",
         "bookmark.delete": "Delete",
         "library.save": "Save current passages…",
         "library.open": "Open / manage…",
@@ -437,6 +450,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "library.delete_confirm_title": "Delete set",
         "library.delete_confirm_body": "Delete the set '{name}'? (verse cache is not removed)",
         "filter.show_translations": "Selected panel translations:",
+        "filter.translation_check_tooltip": "Toggle whether this translation shows in the selected panel.",
         "filter.interleave": "Interleave",
         "filter.interleave_tooltip": "Group translations per verse.",
         "filter.font_label": "Font:",
@@ -488,7 +502,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "search.no_results": "No results",
         "search.too_many": "{n} matches (showing first {limit})",
         "search.empty_cache": "Cache is empty. Run Tools → Download Bible first.",
-        "search.jump_hint": "Double-click a row to add it to the leftmost panel.",
+        "search.jump_hint": "Double-click a row to add it to the selected panel.",
         "menu.help": "Help",
         "menu.feedback": "Send feedback / open an issue…",
         "menu.about": "About…",
@@ -2047,6 +2061,7 @@ class MainWindow(QMainWindow):
 
         row.addWidget(QLabel(tr("selector.book")))
         self.book_box = QComboBox()
+        self.book_box.setToolTip(tr("selector.book_tooltip"))
         self.book_box.addItems(book_names_en() if _CURRENT_LANG == "en" else book_names_ko())
         self.book_box.setEditable(True)
         self.book_box.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -2060,6 +2075,7 @@ class MainWindow(QMainWindow):
         row.addWidget(QLabel(tr("selector.chapter")))
         self.chap_box = QSpinBox()
         self.chap_box.setRange(1, 150)
+        self.chap_box.setToolTip(tr("selector.chapter_tooltip"))
         self.chap_box.valueChanged.connect(self._on_chap_changed)
         row.addWidget(self.chap_box)
 
@@ -2067,12 +2083,14 @@ class MainWindow(QMainWindow):
         self.verse_start = QSpinBox()
         self.verse_start.setRange(1, 200)
         self.verse_start.setValue(1)
+        self.verse_start.setToolTip(tr("selector.verse_tooltip"))
         row.addWidget(self.verse_start)
 
         row.addWidget(QLabel(tr("selector.range_sep")))
         self.verse_end = QSpinBox()
         self.verse_end.setRange(1, 200)
         self.verse_end.setValue(1)
+        self.verse_end.setToolTip(tr("selector.verse_tooltip"))
         row.addWidget(self.verse_end)
 
         self.whole_check = QCheckBox(tr("selector.whole"))
@@ -2081,6 +2099,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self.whole_check)
 
         self.lookup_btn = QPushButton(tr("selector.lookup"))
+        self.lookup_btn.setToolTip(tr("selector.lookup_tooltip"))
         self.lookup_btn.clicked.connect(self._on_lookup)
         row.addWidget(self.lookup_btn)
 
@@ -2132,6 +2151,7 @@ class MainWindow(QMainWindow):
         multi_lookup_btn.clicked.connect(self._on_multi_lookup)
         row.addWidget(multi_lookup_btn)
         multi_add_btn = QPushButton(tr("multi.add"))
+        multi_add_btn.setToolTip(tr("multi.add_tooltip"))
         multi_add_btn.clicked.connect(self._on_multi_add)
         row.addWidget(multi_add_btn)
         # 현재 화면의 패널 구성을 입력란에 텍스트로 뽑기 (#3)
@@ -2166,6 +2186,7 @@ class MainWindow(QMainWindow):
         for code in order:
             cb = QCheckBox(CrossBibleFetcher.TRANSLATION_LABELS[code])
             cb.setChecked(checked.get(code, True))
+            cb.setToolTip(tr("filter.translation_check_tooltip"))
             cb.toggled.connect(lambda c2, c=code: self._on_translation_toggled(c, c2))
             self.translation_checks[code] = cb
             row.addWidget(cb)
@@ -2425,6 +2446,7 @@ class MainWindow(QMainWindow):
         col = _ClickableFrame()
         col.setObjectName("panelFrame")
         col.clicked.connect(lambda p=panel_idx: self._select_panel(p))
+        col.setToolTip(tr("panel.select_tooltip"))
         col.setMinimumWidth(self.PANEL_MIN_WIDTH)  # 4개 초과 시 가로 스크롤 유발
         cv = QVBoxLayout(col)
         cv.setContentsMargins(4, 6, 4, 4)
@@ -2731,16 +2753,11 @@ class MainWindow(QMainWindow):
         self._apply_panels([Panel([ref])])  # 교체: 한 패널 한 구절
 
     def _on_add(self):
-        # ＋추가: 맨 왼쪽 패널에 쌓는다 (패널이 없으면 하나 만든다).
+        # ＋추가: 선택된 패널에 쌓는다 (패널이 없으면 하나 만든다).
         ref = self._current_ref()
         if ref is None:
             return
-        panels = self._copy_panels()
-        if panels:
-            panels[0].blocks.append(ref)
-        else:
-            panels = [Panel([ref])]
-        self._apply_panels(panels)
+        self._add_refs_to_selected_panel([ref])
 
     def _on_new_panel(self):
         if len(self._panels) >= self.MAX_PANELS:
@@ -2922,11 +2939,15 @@ class MainWindow(QMainWindow):
             )
         return panels
 
-    def _add_refs_to_first_panel(self, refs: list[Reference]):
+    def _add_refs_to_selected_panel(self, refs: list[Reference]):
+        # 선택된 패널에 구절을 쌓는다 (패널이 없으면 하나 만든다).
         panels = self._copy_panels()
         if not panels:
             panels = [Panel([])]
-        panels[0].blocks.extend(refs)
+            idx = 0
+        else:
+            idx = self._selected_panel if 0 <= self._selected_panel < len(panels) else 0
+        panels[idx].blocks.extend(refs)
         self._apply_panels(panels)
 
     def _on_multi_lookup(self):
@@ -3013,7 +3034,7 @@ class MainWindow(QMainWindow):
         if self._bookmark_dialog is None:
             self._bookmark_dialog = BookmarksDialog(self.storage, self)
             self._bookmark_dialog.add_to_view.connect(
-                lambda ref: self._add_refs_to_first_panel([ref])
+                lambda ref: self._add_refs_to_selected_panel([ref])
             )
         self._bookmark_dialog.refresh()
         self._bookmark_dialog.show()
@@ -3407,13 +3428,13 @@ class MainWindow(QMainWindow):
         self._search_dialog.input_edit.setFocus()
 
     def _on_search_jump(self, book_en: str, chapter: int, verse: int):
-        # 검색 결과 더블클릭 → 화면을 비우지 않고 '맨 왼쪽 패널'에 그 절을 추가.
+        # 검색 결과 더블클릭 → 화면을 비우지 않고 '선택된 패널'에 그 절을 추가.
         # 검색 다이얼로그는 모드리스라 그대로 열려 있어 계속 추가할 수 있다.
         from bible_books import BOOKS
         ko = next((k for en, k, _, _, _ in BOOKS if en == book_en), None)
         if ko is None:
             return
-        self._add_refs_to_first_panel([Reference(book_en, ko, chapter, verse, verse)])
+        self._add_refs_to_selected_panel([Reference(book_en, ko, chapter, verse, verse)])
 
     # ---- 사전 ----
 
